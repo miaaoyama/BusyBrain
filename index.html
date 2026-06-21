@@ -1,0 +1,604 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Busy Brain</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Nunito:ital,wght@0,400;0,500;0,600;0,700;0,800&display=swap" rel="stylesheet">
+<style>
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body { font-family: 'Nunito', system-ui, sans-serif; }
+  input, button, textarea, select { font-family: inherit; }
+  ::placeholder { color: #a7a3c2; }
+  *::-webkit-scrollbar { width: 10px; height: 10px; }
+  *::-webkit-scrollbar-thumb { background: #ddd6f3; border-radius: 8px; border: 2px solid transparent; background-clip: padding-box; }
+  button { font-family: inherit; }
+</style>
+</head>
+<body>
+
+<div id="app" style="display:flex; min-height:100vh; background:linear-gradient(rgba(245,243,251,0.55), rgba(244,241,252,0.72)), url('assets/sidebar-bg.jpg') center/cover fixed; color:#2d2b52;">
+
+  <!-- ============ SIDEBAR ============ -->
+  <aside style="width:264px; flex:none; background:linear-gradient(rgba(255,255,255,0.58), rgba(255,255,255,0.80)), url('assets/sidebar-bg.jpg') center top/cover; border-right:1px solid #e7e0f2; display:flex; flex-direction:column; position:sticky; top:0; height:100vh;">
+    <div style="padding:16px 16px 12px;">
+      <div style="position:relative; border-radius:16px; overflow:hidden; height:120px; box-shadow:0 4px 16px rgba(120,100,200,0.28);">
+        <img src="assets/cat-bg.jpg" alt="" style="width:100%; height:100%; object-fit:cover; object-position:center 56%; display:block;" />
+        <div style="position:absolute; inset:0; background:linear-gradient(180deg, rgba(45,43,82,0.5) 0%, rgba(45,43,82,0.0) 46%);"></div>
+        <div style="position:absolute; top:11px; left:0; right:0; text-align:center; font-weight:800; font-size:20px; letter-spacing:-0.3px; color:#fff; text-shadow:0 1px 6px rgba(45,43,82,0.75);">Busy Brain</div>
+      </div>
+      <div style="font-size:11.5px; color:#5f5b7c; margin:10px 4px 0; text-align:center; font-weight:600;">Gentle planning for busy brains</div>
+    </div>
+
+    <nav id="nav" style="display:flex; flex-direction:column; gap:4px; padding:8px; margin:0 12px; background:rgba(255,255,255,0.50); border:1px solid rgba(255,255,255,0.6); border-radius:15px; box-shadow:0 2px 8px rgba(120,100,200,0.10);">
+      <button data-view="find" style="display:flex; align-items:center; gap:11px; width:100%; text-align:left; border:none; cursor:pointer; padding:11px 13px; border-radius:11px; font-size:14.5px; font-weight:700; white-space:nowrap;">
+        <span style="font-size:17px;">🔎</span><span>Find a time</span>
+      </button>
+      <button data-view="schedule" style="display:flex; align-items:center; gap:11px; width:100%; text-align:left; border:none; cursor:pointer; padding:11px 13px; border-radius:11px; font-size:14.5px; font-weight:700; white-space:nowrap;">
+        <span style="font-size:17px;">🗓️</span><span>My Schedule</span>
+      </button>
+      <button data-view="classes" style="display:flex; align-items:center; gap:11px; width:100%; text-align:left; border:none; cursor:pointer; padding:11px 13px; border-radius:11px; font-size:14.5px; font-weight:700; white-space:nowrap;">
+        <span style="font-size:17px;">📚</span><span>Classes &amp; Energy</span>
+      </button>
+    </nav>
+
+    <div style="margin-top:auto; margin-left:12px; margin-right:12px; margin-bottom:16px; padding:14px 15px; background:rgba(255,255,255,0.60); border:1px solid rgba(255,255,255,0.6); border-radius:15px; box-shadow:0 2px 8px rgba(120,100,200,0.10);">
+      <div style="font-size:11px; font-weight:700; letter-spacing:0.6px; text-transform:uppercase; color:#9a96b8; margin-bottom:10px;">Task colors</div>
+      <div id="legend" style="display:grid; grid-template-columns:1fr 1fr; gap:7px 12px;"></div>
+    </div>
+  </aside>
+
+  <!-- ============ MAIN ============ -->
+  <main style="flex:1; min-width:0; overflow-y:auto; height:100vh;">
+    <div style="max-width:760px; margin:0 auto; padding:40px 36px 80px;">
+      <div id="view-find"></div>
+      <div id="view-schedule" style="display:none;"></div>
+      <div id="view-classes" style="display:none;"></div>
+    </div>
+  </main>
+</div>
+
+<script>
+/* =========================================================================
+   BusyBrain frontend — vanilla JS, talking to the real FastAPI backend.
+   No fake data lives here; every result comes from /find-meeting, /schedule,
+   and /classes, which call the actual CalendarOrchestrator / SocialAgent.
+   ========================================================================= */
+
+const API_BASE = "http://localhost:8000";
+
+const LEGEND = [
+  { label: 'Classes', color: '#a78bfa' },
+  { label: 'Study', color: '#60a5fa' },
+  { label: 'Appointments', color: '#fb7185' },
+  { label: 'Workout', color: '#34d399' },
+  { label: 'Meals', color: '#fbbf24' },
+  { label: 'Personal', color: '#818cf8' },
+  { label: 'Travel', color: '#94a3b8' },
+];
+
+const TYPE_COLOR = {
+  class: '#a78bfa', study: '#60a5fa', appointment: '#fb7185',
+  workout: '#34d399', meal: '#fbbf24', personal: '#818cf8', travel: '#94a3b8',
+};
+const TYPE_TINT = {
+  class: '#f1ecfe', study: '#e7f0ff', appointment: '#ffe9ee',
+  workout: '#e3f9f0', meal: '#fff4dc', personal: '#eceefe', travel: '#eef1f5',
+};
+
+const state = {
+  view: 'find',
+  // meetup
+  friend: 'Maya',
+  startDate: new Date().toISOString().slice(0, 10),
+  days: 5,
+  duration: 60,
+  place: '',
+  results: [],
+  chosen: null,
+  venue: null,
+  loadingVenue: false,
+  inviteOpen: true,
+  permission: false,
+  inviteReady: false,
+  loadingResults: false,
+  // schedule
+  scheduleDays: [],
+  selectedDay: 0,
+  loadingSchedule: false,
+  // classes
+  className: '',
+  studyHours: 1,
+  rhythm: '30/10',
+  energy: 'Morning',
+  addedClasses: [],
+};
+
+function escapeHtml(str) {
+  const div = document.createElement('div');
+  div.textContent = str == null ? '' : String(str);
+  return div.innerHTML;
+}
+
+// ---- navigation ----
+function setView(v) {
+  state.view = v;
+  document.getElementById('view-find').style.display = v === 'find' ? '' : 'none';
+  document.getElementById('view-schedule').style.display = v === 'schedule' ? '' : 'none';
+  document.getElementById('view-classes').style.display = v === 'classes' ? '' : 'none';
+  renderNav();
+  if (v === 'find') renderFind();
+  if (v === 'schedule') renderSchedule();
+  if (v === 'classes') renderClasses();
+}
+
+function renderNav() {
+  document.querySelectorAll('#nav button').forEach(btn => {
+    const active = btn.dataset.view === state.view;
+    btn.style.background = active ? '#ede9fe' : 'transparent';
+    btn.style.color = active ? '#6d56e8' : '#5a5775';
+  });
+}
+
+function renderLegend() {
+  const el = document.getElementById('legend');
+  el.innerHTML = LEGEND.map(item => `
+    <div style="display:flex; align-items:center; gap:7px; font-size:12.5px; color:#5a5775;">
+      <span style="width:10px; height:10px; border-radius:50%; flex:none; background:${item.color};"></span>
+      <span>${escapeHtml(item.label)}</span>
+    </div>
+  `).join('');
+}
+
+// ---- FIND A TIME view ----
+function renderFind() {
+  const s = state;
+  const resultsHtml = s.loadingResults
+    ? `<div style="margin-top:34px; font-size:14px; color:#75718f;">Finding the best shared windows…</div>`
+    : (s.results.length === 0 ? '' : `
+      <div style="margin-top:34px;">
+        <h2 style="font-size:20px; font-weight:800; letter-spacing:-0.3px; margin:0 0 4px;">Best shared windows</h2>
+        <p style="font-size:13.5px; color:#85819d; margin:0 0 18px;">Ranked by availability, calendar load, and transition time.</p>
+        <div style="display:flex; flex-direction:column; gap:14px;">
+          ${s.results.map((r, i) => {
+            const isChosen = s.chosen === i;
+            return `
+            <div style="background:#fff; border:1px solid #ece8f7; border-radius:16px; padding:20px 22px; box-shadow:0 1px 3px rgba(80,70,140,0.04);">
+              <div style="display:flex; align-items:center; justify-content:space-between; gap:12px;">
+                <div style="font-size:17px; font-weight:800; letter-spacing:-0.2px;">${escapeHtml(r.when)}</div>
+                <div style="flex:none; font-size:12.5px; font-weight:800; color:#7a68ef; background:#ede9fe; padding:5px 11px; border-radius:999px;">Fit ${r.score}</div>
+              </div>
+              <ul style="list-style:none; margin:14px 0 0; padding:0; display:flex; flex-direction:column; gap:7px;">
+                ${r.reasons.map(reason => `
+                  <li style="display:flex; gap:9px; font-size:13.5px; color:#5a5775; line-height:1.4;">
+                    <span style="color:#34d399; font-weight:800; flex:none;">✓</span><span>${escapeHtml(reason)}</span>
+                  </li>
+                `).join('')}
+              </ul>
+              <button data-choose="${i}" style="margin-top:16px; width:100%; border:none; border-radius:11px; padding:12px; font-size:14px; font-weight:800; cursor:${isChosen ? 'default' : 'pointer'};
+                ${isChosen ? 'color:#1f9d6b; background:#e3f9f0;' : 'color:#fff; background:linear-gradient(135deg,#9d8df8,#8b7cf6); box-shadow:0 3px 10px rgba(139,124,246,0.28);'}">
+                ${isChosen ? '✓ Chosen' : 'Choose this time'}
+              </button>
+            </div>`;
+          }).join('')}
+        </div>
+      </div>
+    `);
+
+  const chosenResult = s.chosen != null ? s.results[s.chosen] : null;
+  const inviteDisabled = !s.permission;
+  const inviteBtnStyle = s.inviteReady
+    ? 'color:#1f9d6b; background:#e3f9f0; cursor:default;'
+    : (inviteDisabled
+      ? 'color:#b9b4d6; background:#efecf8; cursor:not-allowed;'
+      : 'color:#fff; background:linear-gradient(135deg,#9d8df8,#8b7cf6); cursor:pointer; box-shadow:0 3px 10px rgba(139,124,246,0.28);');
+  const inviteCaret = s.inviteOpen ? '▾' : '▸';
+  const inviteBtnLabel = s.inviteReady ? '✓ Invite ready — handed to Pika' : 'Prepare personalized invite';
+
+  const venueHtml = !chosenResult ? '' : (
+    s.loadingVenue
+      ? `<div style="margin-top:14px; font-size:13.5px; color:#75718f;">Looking up a real spot nearby…</div>`
+      : (s.venue ? `
+        <div style="margin-top:14px; background:#fff; border:1px solid #ece8f7; border-radius:16px; padding:18px 20px; box-shadow:0 1px 3px rgba(80,70,140,0.04);">
+          <div style="font-size:11.5px; font-weight:700; letter-spacing:0.4px; text-transform:uppercase; color:#9a96b8; margin-bottom:6px;">Suggested spot ${s.venue.source === 'stagehand' ? '(via browser lookup)' : s.venue.source === 'search-only' ? '' : ''}</div>
+          <div style="font-size:16px; font-weight:800;">${escapeHtml(s.venue.name)}</div>
+          ${s.venue.snippet ? `<div style="font-size:13px; color:#6b6889; margin-top:6px; line-height:1.45;">${escapeHtml(s.venue.snippet.slice(0, 220))}${s.venue.snippet.length > 220 ? '…' : ''}</div>` : ''}
+          ${s.venue.url ? `<a href="${escapeHtml(s.venue.url)}" target="_blank" rel="noopener" style="display:inline-block; margin-top:8px; font-size:13px; font-weight:700; color:#7a68ef; text-decoration:none;">View source ↗</a>` : ''}
+        </div>
+      ` : '')
+  );
+
+  const chosenHtml = !chosenResult ? '' : `
+    <div style="margin-top:24px;">
+      <div style="background:#e3f9f0; border:1px solid #bdecd6; border-radius:14px; padding:14px 18px; display:flex; align-items:center; gap:10px;">
+        <span style="font-size:17px; color:#1f9d6b;">✓</span>
+        <div style="font-size:15px; font-weight:800; color:#1f9d6b;">Chosen: ${escapeHtml(chosenResult.when)} ✨</div>
+      </div>
+
+      ${venueHtml}
+
+      <div style="margin-top:14px; background:#fff; border:1px solid #ece8f7; border-radius:16px; overflow:hidden; box-shadow:0 1px 3px rgba(80,70,140,0.04);">
+        <button id="toggle-invite" style="width:100%; display:flex; align-items:center; gap:10px; border:none; background:#faf8ff; cursor:pointer; padding:15px 18px; text-align:left;">
+          <span style="font-size:18px;">🎬</span>
+          <span style="flex:1; font-size:15.5px; font-weight:800; color:#2d2b52;">Create a video invite</span>
+          <span style="font-size:13px; color:#9a96b8; font-weight:700;">${inviteCaret}</span>
+        </button>
+        ${s.inviteOpen ? `
+          <div style="padding:18px;">
+            <p style="font-size:13.5px; color:#75718f; margin:0 0 14px; line-height:1.5;">Hands off a personalized clip to Pika for your friend — generated from the chosen time and place.</p>
+            <label style="display:flex; align-items:flex-start; gap:11px; cursor:pointer; font-size:14px; color:#4a4768; line-height:1.45;">
+              <input id="permission-checkbox" type="checkbox" ${s.permission ? 'checked' : ''} style="width:18px; height:18px; margin-top:1px; accent-color:#8b7cf6; flex:none;" />
+              <span>I have permission to use this person's photo for the invitation.</span>
+            </label>
+            <button id="prepare-invite" ${inviteDisabled ? 'disabled' : ''} style="margin-top:16px; width:100%; border:none; border-radius:11px; padding:13px; font-size:14.5px; font-weight:800; ${inviteBtnStyle}">${inviteBtnLabel}</button>
+          </div>
+        ` : ''}
+      </div>
+
+      <div style="margin-top:14px; background:#fff; border:1px solid #ece8f7; border-radius:16px; padding:18px 20px; display:flex; align-items:center; gap:14px; box-shadow:0 1px 3px rgba(80,70,140,0.04);">
+        <div style="width:58px; height:58px; border-radius:50%; overflow:hidden; flex:none; border:2px solid #ede9fe; box-shadow:0 2px 8px rgba(120,100,200,0.20);">
+          <img src="assets/cat-circle.png" alt="" style="width:100%; height:100%; object-fit:cover; display:block;" />
+        </div>
+        <div style="flex:1; min-width:0;">
+          <div style="font-size:11.5px; font-weight:700; letter-spacing:0.4px; text-transform:uppercase; color:#9a96b8;">Scheduled friend time</div>
+          <div style="font-size:17px; font-weight:800; margin-top:2px;">Meet with ${escapeHtml(s.friend)}</div>
+          <div style="font-size:13.5px; color:#6b6889; margin-top:2px; font-weight:600;">${escapeHtml(chosenResult.when)}</div>
+        </div>
+      </div>
+
+      <button id="goto-generate" style="margin-top:14px; width:100%; border:none; border-radius:13px; padding:15px; font-size:15.5px; font-weight:800; color:#fff; background:linear-gradient(135deg,#9d8df8,#8b7cf6); cursor:pointer; box-shadow:0 4px 14px rgba(139,124,246,0.32);">✨ Generate Schedule</button>
+    </div>
+  `;
+
+  document.getElementById('view-find').innerHTML = `
+    <h1 style="font-size:30px; font-weight:800; letter-spacing:-0.6px; margin:0 0 6px;">Find a time to meet</h1>
+    <p style="font-size:15px; color:#75718f; margin:0 0 28px; line-height:1.5;">Energy-aware scheduling — ranked by real availability and calendar load, not guessed moods.</p>
+
+    <div style="background:#fff; border:1px solid #ece8f7; border-radius:18px; padding:26px 26px 28px; box-shadow:0 1px 3px rgba(80,70,140,0.04);">
+      <div style="display:grid; grid-template-columns:1fr 1fr; gap:18px;">
+        <div>
+          <label style="display:block; font-size:13.5px; font-weight:700; color:#4a4768; margin-bottom:8px;">Which friend?</label>
+          <select id="friend-select" style="width:100%; border:1px solid #e4e0f2; border-radius:12px; padding:12px 14px; font-size:15px; color:#2d2b52; background:#fbfaff; outline:none; appearance:none;">
+            ${['Maya', 'Jordan', 'Sam'].map(f => `<option value="${f}" ${s.friend === f ? 'selected' : ''}>${f}</option>`).join('')}
+          </select>
+        </div>
+        <div>
+          <label style="display:block; font-size:13.5px; font-weight:700; color:#4a4768; margin-bottom:8px;">Start looking from</label>
+          <input id="start-date" type="date" value="${s.startDate}" style="width:100%; border:1px solid #e4e0f2; border-radius:12px; padding:11px 14px; font-size:15px; font-weight:600; color:#2d2b52; background:#fff; outline:none; color-scheme:light;" />
+        </div>
+      </div>
+
+      <div style="display:grid; grid-template-columns:1fr 1fr; gap:18px; margin-top:20px;">
+        <div>
+          <div style="display:flex; justify-content:space-between; align-items:baseline; margin-bottom:6px;">
+            <label style="font-size:13.5px; font-weight:700; color:#4a4768;">Search the next</label>
+            <span id="days-label" style="font-size:13.5px; font-weight:800; color:#8b7cf6;">${s.days} days</span>
+          </div>
+          <input id="days-range" type="range" min="1" max="14" value="${s.days}" style="width:100%; accent-color:#8b7cf6;" />
+        </div>
+        <div>
+          <div style="display:flex; justify-content:space-between; align-items:baseline; margin-bottom:6px;">
+            <label style="font-size:13.5px; font-weight:700; color:#4a4768;">How long</label>
+            <span id="duration-label" style="font-size:13.5px; font-weight:800; color:#8b7cf6;">${s.duration} min</span>
+          </div>
+          <input id="duration-range" type="range" min="15" max="120" step="15" value="${s.duration}" style="width:100%; accent-color:#8b7cf6;" />
+        </div>
+      </div>
+
+      <div style="margin-top:20px;">
+        <label style="display:block; font-size:13.5px; font-weight:700; color:#4a4768; margin-bottom:8px;">Place <span style="font-weight:500; color:#a7a3c2;">(optional)</span></label>
+        <input id="place-input" type="text" value="${escapeHtml(s.place)}" placeholder="Library café, video call…" style="width:100%; border:1px solid #e4e0f2; border-radius:12px; padding:12px 14px; font-size:15px; color:#2d2b52; background:#fbfaff; outline:none;" />
+      </div>
+
+      <button id="find-button" style="margin-top:24px; width:100%; border:none; border-radius:13px; padding:15px; font-size:15.5px; font-weight:800; color:#fff; background:linear-gradient(135deg,#9d8df8,#8b7cf6); cursor:pointer; box-shadow:0 4px 14px rgba(139,124,246,0.32);">
+        Find our best time
+      </button>
+    </div>
+
+    ${resultsHtml}
+    ${chosenHtml}
+  `;
+
+  // wire events
+  document.getElementById('friend-select').onchange = (e) => { state.friend = e.target.value; };
+  document.getElementById('start-date').onchange = (e) => { state.startDate = e.target.value; };
+  document.getElementById('days-range').oninput = (e) => {
+    state.days = Number(e.target.value);
+    document.getElementById('days-label').textContent = `${state.days} days`;
+  };
+  document.getElementById('duration-range').oninput = (e) => {
+    state.duration = Number(e.target.value);
+    document.getElementById('duration-label').textContent = `${state.duration} min`;
+  };
+  document.getElementById('place-input').onchange = (e) => { state.place = e.target.value; };
+  document.getElementById('find-button').onclick = onFind;
+
+  document.querySelectorAll('[data-choose]').forEach(btn => {
+    btn.onclick = () => {
+      state.chosen = Number(btn.dataset.choose);
+      state.inviteReady = false;
+      state.permission = false;
+      state.inviteOpen = true;
+      state.venue = null;
+      renderFind();
+      loadVenue();
+    };
+  });
+
+  const toggleBtn = document.getElementById('toggle-invite');
+  if (toggleBtn) toggleBtn.onclick = () => { state.inviteOpen = !state.inviteOpen; renderFind(); };
+
+  const permCheckbox = document.getElementById('permission-checkbox');
+  if (permCheckbox) permCheckbox.onchange = (e) => { state.permission = e.target.checked; renderFind(); };
+
+  const prepareBtn = document.getElementById('prepare-invite');
+  if (prepareBtn) prepareBtn.onclick = () => {
+    if (!state.permission) return;
+    state.inviteReady = true;
+    renderFind();
+  };
+
+  const gotoGenerate = document.getElementById('goto-generate');
+  if (gotoGenerate) gotoGenerate.onclick = () => setView('schedule');
+}
+
+async function onFind() {
+  state.loadingResults = true;
+  state.results = [];
+  state.chosen = null;
+  renderFind();
+  try {
+    const res = await fetch(`${API_BASE}/find-meeting`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        friend: state.friend,
+        start_date: state.startDate,
+        days: state.days,
+        duration_minutes: state.duration,
+        place: state.place || null,
+      }),
+    });
+    if (!res.ok) throw new Error(`Request failed: ${res.status}`);
+    state.results = await res.json();
+  } catch (err) {
+    console.error(err);
+    document.getElementById('view-find').insertAdjacentHTML('beforeend',
+      `<div style="margin-top:20px; color:#e0556b; font-size:14px;">Couldn't reach the planning backend — is api.py running on ${API_BASE}?</div>`);
+  } finally {
+    state.loadingResults = false;
+    renderFind();
+  }
+}
+
+async function loadVenue() {
+  state.loadingVenue = true;
+  renderFind();
+  try {
+    const res = await fetch(`${API_BASE}/venue-suggestion`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        activity_hint: null,  // let the backend rotate through its idea list as the search seed
+        place: state.place || null,
+      }),
+    });
+    if (!res.ok) throw new Error(`Request failed: ${res.status}`);
+    const venue = await res.json();
+    state.venue = (venue.source === 'none' || venue.source === 'unavailable') ? null : venue;
+  } catch (err) {
+    console.error('Venue lookup failed (non-fatal):', err);
+    state.venue = null;
+  } finally {
+    state.loadingVenue = false;
+    renderFind();
+  }
+}
+
+// ---- MY SCHEDULE view ----
+function renderSchedule() {
+  const s = state;
+  const days7 = s.scheduleDays.map((d, i) => ({
+    dow: d.dow, dom: d.dom,
+    style: (i === s.selectedDay)
+      ? 'flex:none; min-width:74px; border:none; cursor:pointer; padding:9px 14px; border-radius:13px; background:linear-gradient(135deg,#9d8df8,#8b7cf6); color:#fff; text-align:left; box-shadow:0 4px 12px rgba(139,124,246,0.3);'
+      : 'flex:none; min-width:74px; border:1px solid #ece8f7; cursor:pointer; padding:9px 14px; border-radius:13px; background:#fff; color:#5a5775; text-align:left;',
+  }));
+  const cur = s.scheduleDays[s.selectedDay];
+
+  document.getElementById('view-schedule').innerHTML = `
+    <div style="display:flex; align-items:flex-start; justify-content:space-between; gap:16px; flex-wrap:wrap;">
+      <div>
+        <h1 style="font-size:30px; font-weight:800; letter-spacing:-0.6px; margin:0 0 6px;">My schedule</h1>
+        <p style="font-size:15px; color:#75718f; margin:0; line-height:1.5;">You don't have to do it all today — just what matters most.</p>
+      </div>
+      <button id="regenerate-btn" style="flex:none; border:none; border-radius:12px; padding:12px 18px; font-size:14.5px; font-weight:800; color:#fff; background:linear-gradient(135deg,#9d8df8,#8b7cf6); cursor:pointer; box-shadow:0 4px 14px rgba(139,124,246,0.3);">✨ Regenerate</button>
+    </div>
+
+    ${s.loadingSchedule ? `<div style="margin-top:24px; font-size:14px; color:#75718f;">Building your week from real calendar data…</div>` : `
+      <div style="display:flex; gap:8px; overflow-x:auto; padding:24px 0 6px; margin-bottom:8px;">
+        ${days7.map((d, i) => `<button data-day="${i}" style="${d.style}">
+          <div style="font-size:11px; font-weight:700; opacity:0.7; letter-spacing:0.3px;">${escapeHtml(d.dow)}</div>
+          <div style="font-size:15px; font-weight:800; margin-top:1px;">${escapeHtml(d.dom)}</div>
+        </button>`).join('')}
+      </div>
+
+      ${cur ? `
+        <h2 style="font-size:19px; font-weight:800; margin:16px 0 16px;">${escapeHtml(cur.title)}</h2>
+        <div style="display:flex; flex-direction:column; gap:12px;">
+          ${cur.tasks.length === 0 ? `<div style="font-size:14px; color:#9a96b8;">Nothing scheduled — that's the point.</div>` :
+            cur.tasks.map(t => `
+            <div style="display:flex; gap:14px; background:#fff; border:1px solid #ece8f7; border-radius:14px; padding:16px 18px; box-shadow:0 1px 2px rgba(80,70,140,0.03);">
+              <div style="width:5px; flex:none; border-radius:6px; background:${TYPE_COLOR[t.type] || '#94a3b8'};"></div>
+              <div style="flex:1; min-width:0;">
+                <div style="display:flex; align-items:center; justify-content:space-between; gap:10px;">
+                  <div style="font-size:16px; font-weight:800; letter-spacing:-0.2px;">${escapeHtml(t.title)}</div>
+                  <div style="flex:none; font-size:11px; font-weight:700; color:${TYPE_COLOR[t.type] || '#94a3b8'}; background:${TYPE_TINT[t.type] || '#eef1f5'}; padding:3px 9px; border-radius:999px; text-transform:capitalize;">${escapeHtml(t.type)}</div>
+                </div>
+                <div style="font-size:13.5px; color:#6b6889; margin-top:5px; font-weight:600;">${escapeHtml(t.time)}</div>
+                ${t.note ? `<div style="font-size:13px; color:#8a86a8; margin-top:6px; line-height:1.45;">${escapeHtml(t.note)}</div>` : ''}
+              </div>
+            </div>
+          `).join('')}
+        </div>
+      ` : ''}
+    `}
+  `;
+
+  document.getElementById('regenerate-btn').onclick = loadSchedule;
+  document.querySelectorAll('[data-day]').forEach(btn => {
+    btn.onclick = () => { state.selectedDay = Number(btn.dataset.day); renderSchedule(); };
+  });
+}
+
+async function loadSchedule() {
+  state.loadingSchedule = true;
+  renderSchedule();
+  try {
+    const res = await fetch(`${API_BASE}/schedule`);
+    if (!res.ok) throw new Error(`Request failed: ${res.status}`);
+    state.scheduleDays = await res.json();
+    state.selectedDay = 0;
+  } catch (err) {
+    console.error(err);
+    document.getElementById('view-schedule').insertAdjacentHTML('beforeend',
+      `<div style="margin-top:20px; color:#e0556b; font-size:14px;">Couldn't reach the planning backend — is api.py running on ${API_BASE}?</div>`);
+  } finally {
+    state.loadingSchedule = false;
+    renderSchedule();
+  }
+}
+
+// ---- CLASSES & ENERGY view ----
+function renderClasses() {
+  const s = state;
+  const rhythmBtn = (val) => (val === s.rhythm)
+    ? 'flex:1; border:2px solid #8b7cf6; cursor:pointer; padding:12px; border-radius:13px; background:#f4f1fe; color:#6d56e8; text-align:center;'
+    : 'flex:1; border:2px solid #ece8f7; cursor:pointer; padding:12px; border-radius:13px; background:#fff; color:#5a5775; text-align:center;';
+  const energyBtn = (val) => (val === s.energy)
+    ? 'flex:1; border:2px solid #8b7cf6; cursor:pointer; padding:12px 8px; border-radius:13px; background:#f4f1fe; color:#6d56e8; text-align:center;'
+    : 'flex:1; border:2px solid #ece8f7; cursor:pointer; padding:12px 8px; border-radius:13px; background:#fff; color:#5a5775; text-align:center;';
+
+  document.getElementById('view-classes').innerHTML = `
+    <h1 style="font-size:30px; font-weight:800; letter-spacing:-0.6px; margin:0 0 6px;">Classes &amp; energy</h1>
+    <p style="font-size:15px; color:#75718f; margin:0 0 28px; line-height:1.5;">Tell Busy Brain how you work. We'll plan study blocks around your real energy.</p>
+
+    <div style="background:#fff; border:1px solid #ece8f7; border-radius:18px; padding:26px; box-shadow:0 1px 3px rgba(80,70,140,0.04);">
+      <div style="display:grid; grid-template-columns:1fr 1fr; gap:20px;">
+        <div>
+          <label style="display:block; font-size:13.5px; font-weight:700; color:#4a4768; margin-bottom:8px;">Class name</label>
+          <input id="class-name" type="text" value="${escapeHtml(s.className)}" placeholder="e.g. Organic Chemistry" style="width:100%; border:1px solid #e4e0f2; border-radius:12px; padding:12px 14px; font-size:15px; color:#2d2b52; background:#fbfaff; outline:none;" />
+        </div>
+        <div>
+          <label style="display:block; font-size:13.5px; font-weight:700; color:#4a4768; margin-bottom:8px;">Weekly study hours</label>
+          <div style="display:flex; align-items:center; border:1px solid #e4e0f2; border-radius:12px; background:#fbfaff; overflow:hidden;">
+            <button id="dec-hours" style="width:46px; flex:none; border:none; background:transparent; font-size:22px; color:#8b7cf6; cursor:pointer; padding:9px 0; font-weight:700;">−</button>
+            <div style="flex:1; text-align:center; font-size:16px; font-weight:800;">${s.studyHours}</div>
+            <button id="inc-hours" style="width:46px; flex:none; border:none; background:transparent; font-size:22px; color:#8b7cf6; cursor:pointer; padding:9px 0; font-weight:700;">+</button>
+          </div>
+        </div>
+      </div>
+
+      <div style="margin-top:24px;">
+        <label style="display:block; font-size:13.5px; font-weight:700; color:#4a4768; margin-bottom:10px;">Focus rhythm</label>
+        <div style="display:flex; gap:10px;">
+          ${['30/10', '40/10', '60/10'].map(label => `
+            <button data-rhythm="${label}" style="${rhythmBtn(label)}">
+              <div style="font-size:15px; font-weight:800;">${label}</div>
+              <div style="font-size:11.5px; opacity:0.75; margin-top:2px;">focus / break</div>
+            </button>
+          `).join('')}
+        </div>
+      </div>
+
+      <div style="margin-top:24px;">
+        <label style="display:block; font-size:13.5px; font-weight:700; color:#4a4768; margin-bottom:10px;">When's your energy highest?</label>
+        <div style="display:flex; gap:10px;">
+          ${[{ label: 'Morning', icon: '🌅' }, { label: 'Afternoon', icon: '☀️' }, { label: 'Evening', icon: '🌙' }].map(e => `
+            <button data-energy="${e.label}" style="${energyBtn(e.label)}">
+              <div style="font-size:18px;">${e.icon}</div>
+              <div style="font-size:13.5px; font-weight:800; margin-top:3px;">${e.label}</div>
+            </button>
+          `).join('')}
+        </div>
+      </div>
+
+      <button id="add-class-btn" style="margin-top:26px; width:100%; border:none; border-radius:13px; padding:15px; font-size:15.5px; font-weight:800; color:#fff; background:linear-gradient(135deg,#9d8df8,#8b7cf6); cursor:pointer; box-shadow:0 4px 14px rgba(139,124,246,0.32);">✨ Add class &amp; plan study time</button>
+    </div>
+
+    ${s.addedClasses.length === 0 ? '' : `
+      <div style="margin-top:26px;">
+        <h2 style="font-size:18px; font-weight:800; margin:0 0 14px;">Your classes</h2>
+        <div style="display:flex; flex-direction:column; gap:10px;">
+          ${s.addedClasses.map((c, i) => `
+            <div style="display:flex; align-items:center; gap:12px; background:#fff; border:1px solid #ece8f7; border-radius:13px; padding:14px 16px;">
+              <span style="width:10px; height:10px; border-radius:50%; background:#a78bfa; flex:none;"></span>
+              <div style="flex:1;">
+                <div style="font-size:15px; font-weight:800;">${escapeHtml(c.name)}</div>
+                <div style="font-size:12.5px; color:#8a86a8; margin-top:2px;">${escapeHtml(c.detail)}</div>
+              </div>
+              <button data-remove="${i}" style="border:none; background:#f6f3fc; color:#9a96b8; width:30px; height:30px; border-radius:9px; cursor:pointer; font-size:16px; flex:none;">×</button>
+            </div>
+          `).join('')}
+        </div>
+      </div>
+    `}
+  `;
+
+  document.getElementById('class-name').onchange = (e) => { state.className = e.target.value; };
+  document.getElementById('dec-hours').onclick = () => { state.studyHours = Math.max(1, state.studyHours - 1); renderClasses(); };
+  document.getElementById('inc-hours').onclick = () => { state.studyHours = Math.min(40, state.studyHours + 1); renderClasses(); };
+  document.querySelectorAll('[data-rhythm]').forEach(btn => {
+    btn.onclick = () => { state.rhythm = btn.dataset.rhythm; renderClasses(); };
+  });
+  document.querySelectorAll('[data-energy]').forEach(btn => {
+    btn.onclick = () => { state.energy = btn.dataset.energy; renderClasses(); };
+  });
+  document.getElementById('add-class-btn').onclick = onAddClass;
+  document.querySelectorAll('[data-remove]').forEach(btn => {
+    btn.onclick = () => {
+      state.addedClasses.splice(Number(btn.dataset.remove), 1);
+      renderClasses();
+    };
+  });
+}
+
+async function onAddClass() {
+  const name = (state.className || 'Untitled class').trim();
+  const focusMinutes = Number(state.rhythm.split('/')[0]);
+  try {
+    const res = await fetch(`${API_BASE}/classes`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        class_name: name,
+        weekly_study_hours: state.studyHours,
+        focus_minutes: focusMinutes,
+        energy_label: state.energy,
+      }),
+    });
+    if (!res.ok) throw new Error(`Request failed: ${res.status}`);
+    const detail = `${state.studyHours}h/week · ${state.rhythm} rhythm · ${state.energy.toLowerCase()} energy`;
+    state.addedClasses.push({ name, detail });
+    state.className = '';
+  } catch (err) {
+    console.error(err);
+    alert(`Couldn't reach the planning backend — is api.py running on ${API_BASE}?`);
+  } finally {
+    renderClasses();
+  }
+}
+
+// ---- nav wiring + boot ----
+document.querySelectorAll('#nav button').forEach(btn => {
+  btn.onclick = () => setView(btn.dataset.view);
+});
+
+renderLegend();
+setView('find');
+</script>
+</body>
+</html>

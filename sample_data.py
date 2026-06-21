@@ -87,4 +87,10 @@ def build_friend_schedules():
             busy("Sam", 3, time(8, 0), time(12, 0)),
             busy("Sam", 4, time(9, 0), time(17, 0)),
         ],
+        "Priya": [
+            busy("Priya", 0, time(8, 0), time(12, 0)),
+            busy("Priya", 1, time(15, 0), time(20, 0)),
+            busy("Priya", 3, time(9, 0), time(14, 0)),
+            busy("Priya", 5, time(10, 0), time(13, 0)),
+        ],
     }

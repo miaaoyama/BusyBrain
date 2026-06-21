@@ -95,12 +95,18 @@ produces a durable confirmation receipt and a Google Calendar action.
 
 ## Pika invitation handoff
 
-After the user approves a meetup time, the Streamlit experience can prepare a Pika
-invite prompt. This action is consent-gated because personalized video must only use
-a reference photo with the subject's permission. The prompt includes the selected
-time, a calm-window message, and the product's pastel visual direction. Live video
-generation is intentionally isolated from scheduling so a provider delay cannot
-break the core planning demo.
+After the user approves a meetup time, the Streamlit experience prepares a
+consent-gated Pika invitation using a saved cartoon avatar rather than a real
+person's face. The creative concept turns her wrist calendar into a glowing
+jellyfish portal whose bubbles assemble into the confirmed date, time, and place.
+
+The Pika MCP workflow is deliberately multi-step: generate a short spoken invitation,
+animate the approved avatar to that audio, and render the confirmed event details as
+stable mobile-safe text. The output is an 8-second vertical clip displayed beside the
+calendar confirmation. Scheduling remains independent, so a media-provider delay can
+never lose or invalidate the confirmed event. This combines an original visual story,
+privacy-aware generation, and a shareable action outcome instead of treating video as
+decoration.
 
 ## Existing product prototype
 

@@ -157,7 +157,16 @@ class TaskAgent:
 
 
 class SocialAgent:
-    """Ranks shared time using observable load and transition signals."""
+    """Ranks shared time using observable load and transition signals.
+
+    Pairs the explainable time-ranking from coordination.py with a real
+    venue suggestion via Browserbase (search + fetch, with a Stagehand
+    fallback for pages that block simple fetch). If venue lookup fails for
+    any reason (no API key configured, network issue, nothing found), this
+    falls back to the generic idea list rather than failing the meetup
+    suggestion entirely — the time ranking is the load-bearing part of this
+    feature, the venue is a nice-to-have layered on top.
+    """
 
     ideas = [
         "quiet coffee shop for body-doubling",
@@ -187,6 +196,22 @@ class SocialAgent:
             limit=limit,
         )
 
+    def _pick_idea(self, start_day: date, location_hint: str | None = None) -> tuple[str, str | None]:
+        """Returns (label, url). Tries a real venue lookup first; falls
+        back to the generic rotating idea list if that's unavailable or
+        finds nothing. The fallback idea is chosen the same way as before
+        (rotating by date) so behavior is unchanged when venue lookup is off.
+        """
+        fallback_idea = self.ideas[start_day.toordinal() % len(self.ideas)]
+        try:
+            from venue_lookup import find_venue_for_meetup
+            venue = find_venue_for_meetup(fallback_idea, location_hint)
+            if venue and venue.name:
+                return venue.name, venue.url
+        except Exception:
+            pass  # No BROWSERBASE_API_KEY, network issue, etc. — fall back below.
+        return fallback_idea, None
+
     def find_friend_meeting(
         self,
         friend_a_events: List[CalendarEvent],
@@ -195,6 +220,7 @@ class SocialAgent:
         start_day: date,
         end_day: date,
         duration_minutes: int = 90,
+        location_hint: str | None = None,
     ) -> PlanResult:
         result = PlanResult()
         candidates = self.rank_friend_meetings(
@@ -210,13 +236,16 @@ class SocialAgent:
             result.unscheduled.append("Friend meeting")
             return result
         candidate = candidates[0]
-        idea = self.ideas[start_day.toordinal() % len(self.ideas)]
+        idea, idea_url = self._pick_idea(start_day, location_hint)
+        notes = "Why this time: " + "; ".join(candidate.reasons)
+        if idea_url:
+            notes += f" | Suggested spot: {idea_url}"
         result.events.append(CalendarEvent(
             title=f"Friend meet-up: {idea}",
             start=candidate.start,
             end=candidate.end,
             task_type=TaskType.SOCIAL,
-            notes="Why this time: " + "; ".join(candidate.reasons),
+            notes=notes,
             flexible=True,
         ))
         result.messages.append(
