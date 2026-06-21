@@ -1,0 +1,13 @@
+.env
+.env.*
+!.env.example
+.venv/
+__pycache__/
+*.py[cod]
+.DS_Store
+
+# Local credentials and private keys
+*.pem
+*.key
+credentials*.json
+secrets*.json

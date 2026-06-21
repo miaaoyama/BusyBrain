@@ -1,0 +1,14 @@
+# Web interface
+streamlit>=1.31
+
+# Fetch.ai multi-agent network
+uagents>=0.22
+openai>=1.0
+python-dotenv>=1.0
+
+# Later upgrades could add:
+# fastapi
+# pydantic
+# google-api-python-client
+# geopy
+# python-dotenv
