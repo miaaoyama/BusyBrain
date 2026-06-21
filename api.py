@@ -87,6 +87,35 @@ class DayOut(BaseModel):
     tasks: List[TaskOut]
 
 
+class FlowTaskOut(BaseModel):
+    """A task with its real energy-match status, for Today's Flow."""
+    title: str
+    time_range: str
+    start_hour: float  # decimal hour, e.g. 8.5 for 8:30am — used to place on the chart
+    type: str
+    focus_label: str  # "Heavy focus" / "Medium focus" / "Light focus", derived from task_type
+    match_status: str  # "peak_match" | "energy_dip" | "steady"
+    note: str
+
+
+class FlowCurvePoint(BaseModel):
+    hour: float
+    energy_percent: int
+
+
+class DayFlowOut(BaseModel):
+    dow: str
+    dom: str
+    title: str
+    current_energy_percent: int
+    current_energy_label: str
+    peak_window_label: str  # e.g. "Morning energy" — which window we're in/near now
+    events_count: int
+    tasks_fighting_energy: int
+    curve: List[FlowCurvePoint]
+    tasks: List[FlowTaskOut]
+
+
 _ENERGY_LABEL_TO_LEVEL = {
     "Morning": EnergyLevel.HIGH,
     "Afternoon": EnergyLevel.MEDIUM,
@@ -285,6 +314,140 @@ def generate_schedule():
             ],
         ))
     return days
+
+
+# Energy levels map to a percentage band for the gauge/chart. These are
+# fixed reference points, not a measured biometric value — the UI is
+# explicit that this is a schedule-derived estimate, not a claim about how
+# the person actually feels (see the wellness agent's "never infer mood"
+# principle, applied here too).
+_ENERGY_LEVEL_PERCENT = {
+    EnergyLevel.HIGH: 85,
+    EnergyLevel.MEDIUM: 55,
+    EnergyLevel.LOW: 25,
+}
+
+# What energy level each task type implicitly needs, for match scoring.
+# Mirrors the energy_needed values already used when these tasks were
+# scheduled in agents.py, so "peak match" reflects the same logic that
+# placed the task, not a separate guess.
+_TASK_TYPE_ENERGY_NEED = {
+    TaskType.STUDY: EnergyLevel.HIGH,
+    TaskType.CLASS: EnergyLevel.MEDIUM,
+    TaskType.APPOINTMENT: EnergyLevel.MEDIUM,
+    TaskType.WORKOUT: EnergyLevel.MEDIUM,
+    TaskType.MEAL: EnergyLevel.LOW,
+    TaskType.SOCIAL: EnergyLevel.MEDIUM,
+    TaskType.PERSONAL: EnergyLevel.LOW,
+}
+
+_FOCUS_LABEL = {
+    EnergyLevel.HIGH: "Heavy focus",
+    EnergyLevel.MEDIUM: "Medium focus",
+    EnergyLevel.LOW: "Light focus",
+}
+
+
+def _energy_percent_at(hour: float, profile: UserProfile) -> int:
+    """Real lookup against the profile's actual energy windows — not a
+    fabricated curve. Hours outside any defined window get a low baseline,
+    since no stated high/medium window applies there."""
+    for window in profile.energy_windows:
+        start_hour = window.start.hour + window.start.minute / 60
+        end_hour = window.end.hour + window.end.minute / 60
+        if start_hour <= hour < end_hour:
+            return _ENERGY_LEVEL_PERCENT[window.energy]
+    return 15  # outside any defined window — treated as a low-energy baseline
+
+
+def _build_energy_curve(profile: UserProfile, step_minutes: int = 30) -> List[FlowCurvePoint]:
+    points: List[FlowCurvePoint] = []
+    hour = 7.0
+    while hour <= 21.0:
+        points.append(FlowCurvePoint(hour=hour, energy_percent=_energy_percent_at(hour, profile)))
+        hour += step_minutes / 60
+    return points
+
+
+def _match_status(event_start_hour: float, task_type, profile: UserProfile) -> str:
+    needed = _TASK_TYPE_ENERGY_NEED.get(task_type, EnergyLevel.MEDIUM)
+    actual_percent = _energy_percent_at(event_start_hour, profile)
+    needed_percent = _ENERGY_LEVEL_PERCENT[needed]
+    if actual_percent >= needed_percent:
+        return "peak_match"
+    if actual_percent <= needed_percent - 30:
+        return "energy_dip"
+    return "steady"
+
+
+@app.get("/today-flow", response_model=DayFlowOut)
+def today_flow(day_offset: int = 0):
+    """Real energy-aware view of a single day: current energy %, an hourly
+    curve from the profile's actual energy windows, and each task's match
+    status computed against what that task type needs versus the energy
+    level at its scheduled time. day_offset selects which day of the
+    current week to show (0 = first day of week, matching /schedule)."""
+    _, classes, fixed_events, tasks, week_start = build_sample_inputs()
+    profile = _build_profile()
+    all_classes = classes + session_classes
+
+    plan = orchestrator.build_week_plan(profile, all_classes, fixed_events, tasks, week_start)
+
+    day = week_start + timedelta(days=day_offset)
+    day_events = sorted(
+        (e for e in plan.events if e.start.date() == day),
+        key=lambda e: e.start,
+    )
+
+    now = datetime.now()
+    current_hour = now.hour + now.minute / 60 if now.date() == day else 9.0
+    current_percent = _energy_percent_at(current_hour, profile)
+    current_level = next(
+        (level for level, pct in _ENERGY_LEVEL_PERCENT.items() if pct == current_percent),
+        EnergyLevel.LOW,
+    )
+
+    # Label the nearest/current window by time-of-day name, for display
+    # (e.g. "Morning energy") rather than just showing a raw enum value.
+    window_label = "Resting"
+    for window in profile.energy_windows:
+        start_hour = window.start.hour + window.start.minute / 60
+        end_hour = window.end.hour + window.end.minute / 60
+        if start_hour <= current_hour < end_hour:
+            period = "Morning" if start_hour < 12 else ("Afternoon" if start_hour < 17 else "Evening")
+            window_label = f"{period} energy"
+            break
+
+    flow_tasks: List[FlowTaskOut] = []
+    fighting_count = 0
+    for e in day_events:
+        start_hour = e.start.hour + e.start.minute / 60
+        status = _match_status(start_hour, e.task_type, profile)
+        if status == "energy_dip":
+            fighting_count += 1
+        needed = _TASK_TYPE_ENERGY_NEED.get(e.task_type, EnergyLevel.MEDIUM)
+        flow_tasks.append(FlowTaskOut(
+            title=e.title,
+            time_range=f"{e.start.strftime('%I:%M %p').lstrip('0')} \u2013 {e.end.strftime('%I:%M %p').lstrip('0')}",
+            start_hour=start_hour,
+            type=_TASK_TYPE_LABEL.get(e.task_type, "personal"),
+            focus_label=_FOCUS_LABEL[needed],
+            match_status=status,
+            note=e.notes,
+        ))
+
+    return DayFlowOut(
+        dow=day.strftime("%a").upper(),
+        dom=day.strftime("%d"),
+        title=day.strftime("%A, %B %d"),
+        current_energy_percent=current_percent,
+        current_energy_label="Time for a gentle reset" if current_percent < 40 else "Feeling steady",
+        peak_window_label=window_label,
+        events_count=len(day_events),
+        tasks_fighting_energy=fighting_count,
+        curve=_build_energy_curve(profile),
+        tasks=flow_tasks,
+    )
 
 
 if __name__ == "__main__":

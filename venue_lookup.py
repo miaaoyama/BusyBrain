@@ -59,7 +59,7 @@ def search_venues(query: str, num_results: int = 5) -> List[dict]:
 
 
 def fetch_venue_snippet(url: str, max_chars: int = 600) -> str:
-    """Fetches a venue's page and returns a short markdown snippet.
+    """Fetches a venue's page and returns a short, human-readable snippet.
 
     Some sites (heavy JS apps, aggressive bot detection) return blank or
     checkpoint/CAPTCHA content via simple fetch — this is a known fetch vs.
@@ -69,12 +69,106 @@ def fetch_venue_snippet(url: str, max_chars: int = 600) -> str:
     bb = _client()
     result = bb.fetch_api.create(url=url, format="markdown")
     content = getattr(result, "content", None) or getattr(result, "text", "") or ""
-    content = re.sub(r"\s+", " ", content).strip()
+    content = _clean_markdown(content)
 
     if not content or _looks_blocked(content):
         return ""
 
-    return content[:max_chars]
+    return _extract_best_snippet(content, max_chars)
+
+
+_ADDRESS_PATTERN = re.compile(
+    r"\d{1,5}\s+[A-Za-z0-9.\s]{2,40}\b(St|Street|Ave|Avenue|Rd|Road|Blvd|Boulevard|Dr|Drive|Ln|Lane|Way|Ct|Court|Pl|Place|Pkwy|Parkway)\b",
+    re.IGNORECASE,
+)
+_PHONE_PATTERN = re.compile(r"\(?\d{3}\)?[\s.-]\d{3}[\s.-]\d{4}")
+_HOURS_PATTERN = re.compile(
+    r"\b(\d{1,2}(:\d{2})?\s*(am|pm)\s*[-\u2013]\s*\d{1,2}(:\d{2})?\s*(am|pm)|"
+    r"(mon|tue|wed|thu|fri|sat|sun)[a-z]*\s*[-\u2013]\s*(mon|tue|wed|thu|fri|sat|sun)[a-z]*)\b",
+    re.IGNORECASE,
+)
+_PROMO_PATTERN = re.compile(
+    r"\b(% off|free shipping|gift subscription|promo|sale|discount code|coupon)\b",
+    re.IGNORECASE,
+)
+
+
+def _extract_best_snippet(content: str, max_chars: int) -> str:
+    """Picks the most useful slice of cleaned page content for display.
+
+    Rather than always showing the first max_chars (which is often promo
+    banners or nav text on real sites), this looks across the *whole*
+    cleaned content for sentence-like chunks that contain a real address,
+    phone number, or hours pattern, and prefers those. Falls back to a
+    simple truncation if nothing matches — still better than nothing, and
+    keeps this honest about not always finding a perfect extract.
+    """
+    # Split into rough sentence/clause chunks so we can score each one.
+    chunks = re.split(r"(?<=[.!?])\s+|\s*\u2022\s*", content)
+    chunks = [c.strip() for c in chunks if c.strip()]
+
+    scored: list[tuple[int, str]] = []
+    for chunk in chunks:
+        if _PROMO_PATTERN.search(chunk):
+            continue  # never lead with promo/marketing text
+        score = 0
+        if _ADDRESS_PATTERN.search(chunk):
+            score += 3
+        if _PHONE_PATTERN.search(chunk):
+            score += 2
+        if _HOURS_PATTERN.search(chunk):
+            score += 2
+        if score > 0:
+            scored.append((score, chunk))
+
+    if scored:
+        scored.sort(key=lambda pair: -pair[0])
+        # Join the top few chunks (in their original relative order) so the
+        # snippet reads as a short paragraph rather than one isolated line.
+        top_chunks = [c for _, c in scored[:3]]
+        best = " ".join(top_chunks)
+        return best[:max_chars]
+
+    # No address/phone/hours signal found anywhere — fall back to the
+    # first non-promo chunk(s) rather than guaranteed-irrelevant banner text.
+    non_promo = [c for c in chunks if not _PROMO_PATTERN.search(c)]
+    fallback = " ".join(non_promo) if non_promo else content
+    return fallback[:max_chars]
+
+
+_NAV_BOILERPLATE_WORDS = {
+    "skip to content", "skip to main content", "skip to main", "menu",
+    "cart", "home", "loading...", "visit", "store details", "features",
+}
+
+
+def _clean_markdown(content: str) -> str:
+    """Converts raw fetched markdown into plain, displayable text.
+
+    This is a best-effort cleanup, not a perfect HTML-to-text converter —
+    every site formats navigation differently, so some boilerplate may
+    still slip through occasionally. The goal is "readable enough for a
+    UI snippet," not pixel-perfect extraction.
+    """
+    # Drop markdown image syntax entirely, reduce [text](url) links to text.
+    content = re.sub(r"!\[[^\]]*\]\([^)]*\)", "", content)
+    content = re.sub(r"\[([^\]]*)\]\([^)]*\)", r"\1", content)
+    # Drop markdown headers ("# Heading" -> "Heading").
+    content = re.sub(r"#{1,6}\s*", "", content)
+    content = re.sub(r"\s+", " ", content).strip()
+
+    # Remove known nav/boilerplate phrases wherever they occur, not just
+    # at the start — these are short fragments that add no information
+    # about the venue itself.
+    for phrase in sorted(_NAV_BOILERPLATE_WORDS, key=len, reverse=True):
+        content = re.sub(re.escape(phrase), "", content, flags=re.IGNORECASE)
+
+    content = re.sub(r"\s*-\s*-\s*", " - ", content)  # collapse "- -" leftovers
+    content = re.sub(r"^\s*-+\s*", "", content)  # strip leading dashes
+    content = re.sub(r"[\[\]]", "", content)  # strip stray unmatched brackets
+    content = re.sub(r"\s+", " ", content).strip(" -")
+
+    return content
 
 
 def fetch_venue_snippet_via_stagehand(url: str, max_chars: int = 600) -> str:

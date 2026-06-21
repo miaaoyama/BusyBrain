@@ -34,6 +34,9 @@
     </div>
 
     <nav id="nav" style="display:flex; flex-direction:column; gap:4px; padding:8px; margin:0 12px; background:rgba(255,255,255,0.50); border:1px solid rgba(255,255,255,0.6); border-radius:15px; box-shadow:0 2px 8px rgba(120,100,200,0.10);">
+      <button data-view="flow" style="display:flex; align-items:center; gap:11px; width:100%; text-align:left; border:none; cursor:pointer; padding:11px 13px; border-radius:11px; font-size:14.5px; font-weight:700; white-space:nowrap;">
+        <span style="font-size:17px;">📈</span><span>Today's flow</span>
+      </button>
       <button data-view="find" style="display:flex; align-items:center; gap:11px; width:100%; text-align:left; border:none; cursor:pointer; padding:11px 13px; border-radius:11px; font-size:14.5px; font-weight:700; white-space:nowrap;">
         <span style="font-size:17px;">🔎</span><span>Find a time</span>
       </button>
@@ -54,6 +57,7 @@
   <!-- ============ MAIN ============ -->
   <main style="flex:1; min-width:0; overflow-y:auto; height:100vh;">
     <div style="max-width:760px; margin:0 auto; padding:40px 36px 80px;">
+      <div id="view-flow"></div>
       <div id="view-find"></div>
       <div id="view-schedule" style="display:none;"></div>
       <div id="view-classes" style="display:none;"></div>
@@ -90,7 +94,11 @@ const TYPE_TINT = {
 };
 
 const state = {
-  view: 'find',
+  view: 'flow',
+  // flow
+  flowDayOffset: 0,
+  flowData: null,
+  loadingFlow: false,
   // meetup
   friend: 'Maya',
   startDate: new Date().toISOString().slice(0, 10),
@@ -126,10 +134,12 @@ function escapeHtml(str) {
 // ---- navigation ----
 function setView(v) {
   state.view = v;
+  document.getElementById('view-flow').style.display = v === 'flow' ? '' : 'none';
   document.getElementById('view-find').style.display = v === 'find' ? '' : 'none';
   document.getElementById('view-schedule').style.display = v === 'schedule' ? '' : 'none';
   document.getElementById('view-classes').style.display = v === 'classes' ? '' : 'none';
   renderNav();
+  if (v === 'flow') loadFlow();
   if (v === 'find') renderFind();
   if (v === 'schedule') renderSchedule();
   if (v === 'classes') renderClasses();
@@ -151,6 +161,128 @@ function renderLegend() {
       <span>${escapeHtml(item.label)}</span>
     </div>
   `).join('');
+}
+
+// ---- TODAY'S FLOW view ----
+const FLOW_TYPE_COLOR = TYPE_COLOR; // reuse the same task-type palette as My Schedule
+
+const MATCH_BADGE = {
+  peak_match: { label: '✓ Peak match', color: '#1f9d6b', bg: '#e3f9f0' },
+  energy_dip: { label: '⚠ Energy dip', color: '#b8842e', bg: '#fdf1de' },
+  steady: { label: '~ Steady', color: '#6d56e8', bg: '#ede9fe' },
+};
+
+function buildFlowCurveSvg(curve, width = 900, height = 220) {
+  if (!curve || curve.length === 0) return '';
+  const minHour = curve[0].hour, maxHour = curve[curve.length - 1].hour;
+  const xFor = (hour) => ((hour - minHour) / (maxHour - minHour)) * width;
+  const yFor = (pct) => height - (pct / 100) * height;
+
+  const linePoints = curve.map(p => `${xFor(p.hour).toFixed(1)},${yFor(p.energy_percent).toFixed(1)}`).join(' ');
+  const areaPoints = `0,${height} ${linePoints} ${width},${height}`;
+
+  return `
+    <svg viewBox="0 0 ${width} ${height}" style="width:100%; height:${height}px; display:block;" preserveAspectRatio="none">
+      <polygon points="${areaPoints}" fill="#8b7cf6" opacity="0.12"></polygon>
+      <polyline points="${linePoints}" fill="none" stroke="#8b7cf6" stroke-width="3" stroke-linejoin="round" stroke-linecap="round"></polyline>
+    </svg>
+  `;
+}
+
+function renderFlow() {
+  const s = state;
+  const data = s.flowData;
+
+  const dayTabs = [0, 1, 2, 3, 4, 5, 6].map(offset => {
+    const active = offset === s.flowDayOffset;
+    const label = data && data.dow ? null : null; // labels filled in after fetch per-tab in a real build; using offset-based placeholder here
+    return `<button data-day-offset="${offset}" style="flex:none; min-width:64px; border:none; cursor:pointer; padding:10px 8px; border-radius:13px; text-align:center;
+      ${active ? 'background:linear-gradient(135deg,#9d8df8,#8b7cf6); color:#fff; box-shadow:0 4px 12px rgba(139,124,246,0.3);' : 'background:#fff; border:1px solid #ece8f7; color:#5a5775;'}">
+      <div style="font-size:10.5px; font-weight:700; opacity:0.75; letter-spacing:0.4px;">${dayOffsetLabel(offset)}</div>
+    </button>`;
+  }).join('');
+
+  document.getElementById('view-flow').innerHTML = `
+    <div style="display:flex; align-items:flex-start; justify-content:space-between; gap:16px; flex-wrap:wrap;">
+      <div>
+        <h1 style="font-size:30px; font-weight:800; letter-spacing:-0.6px; margin:0 0 6px;">Today's flow</h1>
+        <p style="font-size:15px; color:#75718f; margin:0; line-height:1.5;">Your tasks, mapped onto the energy you'll actually have.</p>
+      </div>
+      <button id="flow-replan" style="flex:none; display:flex; align-items:center; gap:8px; border:1px solid #ece8f7; border-radius:12px; padding:11px 16px; font-size:14px; font-weight:800; color:#6d56e8; background:#fff; cursor:pointer;">↻ Re-plan</button>
+    </div>
+
+    <div style="display:flex; gap:8px; overflow-x:auto; padding:22px 0 4px;">${dayTabs}</div>
+
+    ${s.loadingFlow ? `<div style="margin-top:20px; font-size:14px; color:#75718f;">Mapping your energy for the day…</div>` : (!data ? '' : `
+      <div style="margin-top:6px; background:#fff; border:1px solid #ece8f7; border-radius:18px; padding:26px; box-shadow:0 1px 3px rgba(80,70,140,0.04);">
+        <div style="display:flex; align-items:flex-start; justify-content:space-between; flex-wrap:wrap; gap:10px;">
+          <div>
+            <div style="font-size:19px; font-weight:800;">${escapeHtml(data.title)}</div>
+            <div style="font-size:13.5px; color:#8a86a8; margin-top:3px;">${data.events_count} events \u00b7 ${data.tasks_fighting_energy} task${data.tasks_fighting_energy === 1 ? '' : 's'} fighting your energy</div>
+          </div>
+          <div style="flex:none; font-size:12.5px; font-weight:800; color:#6d56e8; background:#ede9fe; padding:7px 13px; border-radius:999px;">${escapeHtml(data.peak_window_label)}</div>
+        </div>
+
+        <div style="margin-top:20px;">${buildFlowCurveSvg(data.curve)}</div>
+        <div style="display:flex; justify-content:space-between; font-size:12px; color:#9a96b8; margin-top:6px; font-weight:600;">
+          <span>7 AM</span><span>10 AM</span><span>1 PM</span><span>4 PM</span><span>7 PM</span><span>9 PM</span>
+        </div>
+      </div>
+
+      <div style="margin-top:18px; display:flex; flex-direction:column; gap:12px;">
+        ${data.tasks.map(t => {
+          const badge = MATCH_BADGE[t.match_status] || MATCH_BADGE.steady;
+          return `
+          <div style="display:flex; gap:14px; background:#fff; border:1px solid #ece8f7; border-radius:14px; padding:16px 18px; box-shadow:0 1px 2px rgba(80,70,140,0.03);">
+            <div style="width:5px; flex:none; border-radius:6px; background:${FLOW_TYPE_COLOR[t.type] || '#94a3b8'};"></div>
+            <div style="flex:none; min-width:84px;">
+              <div style="font-size:13.5px; font-weight:800;">${escapeHtml(t.time_range.split('\u2013')[0].trim())}</div>
+              <div style="font-size:11.5px; color:#9a96b8;">to ${escapeHtml(t.time_range.split('\u2013')[1] ? t.time_range.split('\u2013')[1].trim() : '')}</div>
+            </div>
+            <div style="flex:1; min-width:0;">
+              <div style="font-size:16px; font-weight:800;">${escapeHtml(t.title)}</div>
+              <div style="font-size:13px; color:#8a86a8; margin-top:3px; text-transform:capitalize;">${escapeHtml(t.type)} \u00b7 ${escapeHtml(t.focus_label)}</div>
+            </div>
+            <div style="flex:none; align-self:center; font-size:12px; font-weight:800; color:${badge.color}; background:${badge.bg}; padding:6px 11px; border-radius:999px; white-space:nowrap;">${badge.label}</div>
+          </div>`;
+        }).join('')}
+      </div>
+    `)}
+  `;
+
+  const replanBtn = document.getElementById('flow-replan');
+  if (replanBtn) replanBtn.onclick = loadFlow;
+
+  document.querySelectorAll('[data-day-offset]').forEach(btn => {
+    btn.onclick = () => {
+      state.flowDayOffset = Number(btn.dataset.dayOffset);
+      loadFlow();
+    };
+  });
+}
+
+function dayOffsetLabel(offset) {
+  const day = new Date();
+  day.setDate(day.getDate() - day.getDay() + 1 + offset); // approx week-start Monday
+  return day.toLocaleDateString('en-US', { weekday: 'short' }).toUpperCase() + ' ' + day.getDate();
+}
+
+async function loadFlow() {
+  state.loadingFlow = true;
+  renderFlow();
+  try {
+    const res = await fetch(`${API_BASE}/today-flow?day_offset=${state.flowDayOffset}`);
+    if (!res.ok) throw new Error(`Request failed: ${res.status}`);
+    state.flowData = await res.json();
+  } catch (err) {
+    console.error(err);
+    state.flowData = null;
+    document.getElementById('view-flow').insertAdjacentHTML('beforeend',
+      `<div style="margin-top:20px; color:#e0556b; font-size:14px;">Couldn't reach the planning backend — is api.py running on ${API_BASE}?</div>`);
+  } finally {
+    state.loadingFlow = false;
+    renderFlow();
+  }
 }
 
 // ---- FIND A TIME view ----
@@ -289,8 +421,8 @@ function renderFind() {
       </div>
 
       <div style="margin-top:20px;">
-        <label style="display:block; font-size:13.5px; font-weight:700; color:#4a4768; margin-bottom:8px;">Place <span style="font-weight:500; color:#a7a3c2;">(optional)</span></label>
-        <input id="place-input" type="text" value="${escapeHtml(s.place)}" placeholder="Library café, video call…" style="width:100%; border:1px solid #e4e0f2; border-radius:12px; padding:12px 14px; font-size:15px; color:#2d2b52; background:#fbfaff; outline:none;" />
+        <label style="display:block; font-size:13.5px; font-weight:700; color:#4a4768; margin-bottom:8px;">Location <span style="font-weight:500; color:#a7a3c2;">(optional, helps find a real nearby spot)</span></label>
+        <input id="place-input" type="text" value="${escapeHtml(s.place)}" placeholder="e.g. Irvine, CA or your campus name" style="width:100%; border:1px solid #e4e0f2; border-radius:12px; padding:12px 14px; font-size:15px; color:#2d2b52; background:#fbfaff; outline:none;" />
       </div>
 
       <button id="find-button" style="margin-top:24px; width:100%; border:none; border-radius:13px; padding:15px; font-size:15.5px; font-weight:800; color:#fff; background:linear-gradient(135deg,#9d8df8,#8b7cf6); cursor:pointer; box-shadow:0 4px 14px rgba(139,124,246,0.32);">
@@ -598,7 +730,7 @@ document.querySelectorAll('#nav button').forEach(btn => {
 });
 
 renderLegend();
-setView('find');
+setView('flow');
 </script>
 </body>
 </html>
