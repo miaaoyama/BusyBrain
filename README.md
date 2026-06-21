@@ -122,6 +122,15 @@ These modules demonstrate the broader product direction; the Agentverse workflow
 implemented by `agent.py`, `study_agent.py`, `calendar_agent.py`, and
 `wellness_agent.py`.
 
+For the complete browser demo (calendar UI + interactive Pika message), run:
+
+```bash
+.venv/bin/uvicorn api:app --reload --port 8000
+python3 -m http.server 8080
+```
+
+Then open `http://localhost:8080/`. Keep both processes running during the demo.
+
 ## Safety and scope
 
 BusyBrain provides planning support, not medical diagnosis, therapy, or professional

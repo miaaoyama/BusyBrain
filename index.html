@@ -96,7 +96,8 @@ const TYPE_TINT = {
 const state = {
   view: 'flow',
   // flow
-  flowDayOffset: 0,
+  flowDayOffset: (new Date().getDay() + 6) % 7,
+  flowMonthOffset: 0,
   flowData: null,
   loadingFlow: false,
   // meetup
@@ -116,6 +117,7 @@ const state = {
   // schedule
   scheduleDays: [],
   selectedDay: 0,
+  scheduleWeekOffset: 0,
   loadingSchedule: false,
   // classes
   className: '',
@@ -141,7 +143,10 @@ function setView(v) {
   renderNav();
   if (v === 'flow') loadFlow();
   if (v === 'find') renderFind();
-  if (v === 'schedule') renderSchedule();
+  if (v === 'schedule') {
+    if (state.scheduleDays.length === 0 && !state.loadingSchedule) loadSchedule();
+    else renderSchedule();
+  }
   if (v === 'classes') renderClasses();
 }
 
@@ -193,14 +198,7 @@ function renderFlow() {
   const s = state;
   const data = s.flowData;
 
-  const dayTabs = [0, 1, 2, 3, 4, 5, 6].map(offset => {
-    const active = offset === s.flowDayOffset;
-    const label = data && data.dow ? null : null; // labels filled in after fetch per-tab in a real build; using offset-based placeholder here
-    return `<button data-day-offset="${offset}" style="flex:none; min-width:64px; border:none; cursor:pointer; padding:10px 8px; border-radius:13px; text-align:center;
-      ${active ? 'background:linear-gradient(135deg,#9d8df8,#8b7cf6); color:#fff; box-shadow:0 4px 12px rgba(139,124,246,0.3);' : 'background:#fff; border:1px solid #ece8f7; color:#5a5775;'}">
-      <div style="font-size:10.5px; font-weight:700; opacity:0.75; letter-spacing:0.4px;">${dayOffsetLabel(offset)}</div>
-    </button>`;
-  }).join('');
+  const calendarHtml = buildFlowCalendar(s.flowMonthOffset, s.flowDayOffset);
 
   document.getElementById('view-flow').innerHTML = `
     <div style="display:flex; align-items:flex-start; justify-content:space-between; gap:16px; flex-wrap:wrap;">
@@ -211,7 +209,7 @@ function renderFlow() {
       <button id="flow-replan" style="flex:none; display:flex; align-items:center; gap:8px; border:1px solid #ece8f7; border-radius:12px; padding:11px 16px; font-size:14px; font-weight:800; color:#6d56e8; background:#fff; cursor:pointer;">↻ Re-plan</button>
     </div>
 
-    <div style="display:flex; gap:8px; overflow-x:auto; padding:22px 0 4px;">${dayTabs}</div>
+    ${calendarHtml}
 
     ${s.loadingFlow ? `<div style="margin-top:20px; font-size:14px; color:#75718f;">Mapping your energy for the day…</div>` : (!data ? '' : `
       <div style="margin-top:6px; background:#fff; border:1px solid #ece8f7; border-radius:18px; padding:26px; box-shadow:0 1px 3px rgba(80,70,140,0.04);">
@@ -259,12 +257,68 @@ function renderFlow() {
       loadFlow();
     };
   });
+  const prevMonth = document.getElementById('flow-prev-month');
+  if (prevMonth) prevMonth.onclick = () => { state.flowMonthOffset -= 1; renderFlow(); };
+  const nextMonth = document.getElementById('flow-next-month');
+  if (nextMonth) nextMonth.onclick = () => { state.flowMonthOffset += 1; renderFlow(); };
+  const todayMonth = document.getElementById('flow-today');
+  if (todayMonth) todayMonth.onclick = () => {
+    state.flowMonthOffset = 0;
+    state.flowDayOffset = offsetFromWeekStart(new Date());
+    loadFlow();
+  };
 }
 
-function dayOffsetLabel(offset) {
-  const day = new Date();
-  day.setDate(day.getDate() - day.getDay() + 1 + offset); // approx week-start Monday
-  return day.toLocaleDateString('en-US', { weekday: 'short' }).toUpperCase() + ' ' + day.getDate();
+function mondayOfCurrentWeek() {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const mondayDelta = (today.getDay() + 6) % 7;
+  today.setDate(today.getDate() - mondayDelta);
+  return today;
+}
+
+function offsetFromWeekStart(day) {
+  const normalized = new Date(day);
+  normalized.setHours(0, 0, 0, 0);
+  return Math.round((normalized - mondayOfCurrentWeek()) / 86400000);
+}
+
+function dateForFlowOffset(offset) {
+  const day = mondayOfCurrentWeek();
+  day.setDate(day.getDate() + offset);
+  return day;
+}
+
+function buildFlowCalendar(monthOffset, selectedOffset) {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const month = new Date(today.getFullYear(), today.getMonth() + monthOffset, 1);
+  const selected = dateForFlowOffset(selectedOffset);
+  const daysInMonth = new Date(month.getFullYear(), month.getMonth() + 1, 0).getDate();
+  const leading = (month.getDay() + 6) % 7; // Monday-first grid
+  const weekdayHeaders = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun']
+    .map(label => `<div style="text-align:center; font-size:10px; font-weight:800; color:#9a96b8; letter-spacing:.08em; text-transform:uppercase;">${label}</div>`)
+    .join('');
+  const blanks = Array.from({ length: leading }, () => '<div></div>').join('');
+  const cells = Array.from({ length: daysInMonth }, (_, i) => {
+    const day = new Date(month.getFullYear(), month.getMonth(), i + 1);
+    const offset = offsetFromWeekStart(day);
+    const active = day.getTime() === selected.getTime();
+    const isToday = day.getTime() === today.getTime();
+    return `<button data-day-offset="${offset}" aria-label="${day.toLocaleDateString('en-US', {month:'long',day:'numeric',year:'numeric'})}" style="height:38px; border:${isToday && !active ? '1px solid #9d8df8' : '1px solid transparent'}; border-radius:11px; cursor:pointer; font-size:13px; font-weight:800; ${active ? 'color:#fff; background:linear-gradient(135deg,#9d8df8,#8b7cf6); box-shadow:0 4px 12px rgba(139,124,246,.28);' : 'color:#5a5775; background:#f9f7ff;'}">${i + 1}</button>`;
+  }).join('');
+  return `
+    <section style="margin-top:22px; background:rgba(255,255,255,.82); border:1px solid #ece8f7; border-radius:18px; padding:16px; box-shadow:0 1px 3px rgba(80,70,140,.04);">
+      <div style="display:flex; align-items:center; justify-content:space-between; gap:10px; margin-bottom:14px;">
+        <button id="flow-prev-month" aria-label="Previous month" style="width:36px;height:36px;border:1px solid #ece8f7;border-radius:10px;background:#fff;color:#6d56e8;cursor:pointer;font-size:18px;">‹</button>
+        <div style="text-align:center;">
+          <div style="font-size:16px;font-weight:900;">${month.toLocaleDateString('en-US',{month:'long',year:'numeric'})}</div>
+          <button id="flow-today" style="margin-top:2px;border:0;background:transparent;color:#8b7cf6;cursor:pointer;font-size:11px;font-weight:800;">Jump to today</button>
+        </div>
+        <button id="flow-next-month" aria-label="Next month" style="width:36px;height:36px;border:1px solid #ece8f7;border-radius:10px;background:#fff;color:#6d56e8;cursor:pointer;font-size:18px;">›</button>
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(7,1fr);gap:6px;">${weekdayHeaders}${blanks}${cells}</div>
+    </section>`;
 }
 
 async function loadFlow() {
@@ -328,7 +382,7 @@ function renderFind() {
       ? 'color:#b9b4d6; background:#efecf8; cursor:not-allowed;'
       : 'color:#fff; background:linear-gradient(135deg,#9d8df8,#8b7cf6); cursor:pointer; box-shadow:0 3px 10px rgba(139,124,246,0.28);');
   const inviteCaret = s.inviteOpen ? '▾' : '▸';
-  const inviteBtnLabel = s.inviteReady ? '✓ Invite ready — handed to Pika' : 'Prepare personalized invite';
+  const inviteBtnLabel = 'Create Pika message ✨';
 
   const venueHtml = !chosenResult ? '' : (
     s.loadingVenue
@@ -354,16 +408,16 @@ function renderFind() {
 
       <div style="margin-top:14px; background:#fff; border:1px solid #ece8f7; border-radius:16px; overflow:hidden; box-shadow:0 1px 3px rgba(80,70,140,0.04);">
         <button id="toggle-invite" style="width:100%; display:flex; align-items:center; gap:10px; border:none; background:#faf8ff; cursor:pointer; padding:15px 18px; text-align:left;">
-          <span style="font-size:18px;">🎬</span>
-          <span style="flex:1; font-size:15.5px; font-weight:800; color:#2d2b52;">Create a video invite</span>
+          <span style="font-size:18px;">✨</span>
+          <span style="flex:1; font-size:15.5px; font-weight:800; color:#2d2b52;">Create a Pika message</span>
           <span style="font-size:13px; color:#9a96b8; font-weight:700;">${inviteCaret}</span>
         </button>
         ${s.inviteOpen ? `
           <div style="padding:18px;">
-            <p style="font-size:13.5px; color:#75718f; margin:0 0 14px; line-height:1.5;">Hands off a personalized clip to Pika for your friend — generated from the chosen time and place.</p>
+            <p style="font-size:13.5px; color:#75718f; margin:0 0 14px; line-height:1.5;">Open an interactive Pika-powered invitation generated from the chosen friend, time, and place.</p>
             <label style="display:flex; align-items:flex-start; gap:11px; cursor:pointer; font-size:14px; color:#4a4768; line-height:1.45;">
               <input id="permission-checkbox" type="checkbox" ${s.permission ? 'checked' : ''} style="width:18px; height:18px; margin-top:1px; accent-color:#8b7cf6; flex:none;" />
-              <span>I have permission to use this person's photo for the invitation.</span>
+              <span>I have permission to use the supplied cartoon artwork for this invitation.</span>
             </label>
             <button id="prepare-invite" ${inviteDisabled ? 'disabled' : ''} style="margin-top:16px; width:100%; border:none; border-radius:11px; padding:13px; font-size:14.5px; font-weight:800; ${inviteBtnStyle}">${inviteBtnLabel}</button>
           </div>
@@ -449,13 +503,15 @@ function renderFind() {
   document.getElementById('find-button').onclick = onFind;
 
   document.querySelectorAll('[data-choose]').forEach(btn => {
-    btn.onclick = () => {
-      state.chosen = Number(btn.dataset.choose);
+    btn.onclick = async () => {
+      const index = Number(btn.dataset.choose);
+      state.chosen = index;
       state.inviteReady = false;
       state.permission = false;
       state.inviteOpen = true;
       state.venue = null;
       renderFind();
+      await saveMeeting(index);
       loadVenue();
     };
   });
@@ -469,8 +525,13 @@ function renderFind() {
   const prepareBtn = document.getElementById('prepare-invite');
   if (prepareBtn) prepareBtn.onclick = () => {
     if (!state.permission) return;
-    state.inviteReady = true;
-    renderFind();
+    const chosen = state.chosen != null ? state.results[state.chosen] : null;
+    const params = new URLSearchParams({
+      friend: state.friend,
+      when: chosen ? chosen.when : '',
+      venue: state.venue?.name || state.place || '',
+    });
+    window.location.href = `calm-portal/index.html?${params.toString()}`;
   };
 
   const gotoGenerate = document.getElementById('goto-generate');
@@ -530,6 +591,32 @@ async function loadVenue() {
   }
 }
 
+async function saveMeeting(index) {
+  const meeting = state.results[index];
+  if (!meeting) return;
+  try {
+    const res = await fetch(`${API_BASE}/meetings`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        friend: state.friend,
+        start_iso: meeting.start_iso,
+        end_iso: meeting.end_iso,
+        venue: state.place || null,
+      }),
+    });
+    if (res.status === 404) {
+      throw new Error('The backend is running an older version. Restart api.py and try again.');
+    }
+    if (!res.ok) throw new Error(`Request failed: ${res.status}`);
+    state.scheduleDays = [];
+    state.flowData = null;
+  } catch (err) {
+    console.error('Meeting save failed:', err);
+    alert(err.message || 'The time was selected, but Busy Brain could not add it to the calendar. Restart api.py and try again.');
+  }
+}
+
 // ---- MY SCHEDULE view ----
 function renderSchedule() {
   const s = state;
@@ -540,6 +627,9 @@ function renderSchedule() {
       : 'flex:none; min-width:74px; border:1px solid #ece8f7; cursor:pointer; padding:9px 14px; border-radius:13px; background:#fff; color:#5a5775; text-align:left;',
   }));
   const cur = s.scheduleDays[s.selectedDay];
+  const weekLabel = s.scheduleDays.length
+    ? `${s.scheduleDays[0].dom} – ${s.scheduleDays[s.scheduleDays.length - 1].dom}`
+    : 'Loading week…';
 
   document.getElementById('view-schedule').innerHTML = `
     <div style="display:flex; align-items:flex-start; justify-content:space-between; gap:16px; flex-wrap:wrap;">
@@ -548,6 +638,15 @@ function renderSchedule() {
         <p style="font-size:15px; color:#75718f; margin:0; line-height:1.5;">You don't have to do it all today — just what matters most.</p>
       </div>
       <button id="regenerate-btn" style="flex:none; border:none; border-radius:12px; padding:12px 18px; font-size:14.5px; font-weight:800; color:#fff; background:linear-gradient(135deg,#9d8df8,#8b7cf6); cursor:pointer; box-shadow:0 4px 14px rgba(139,124,246,0.3);">✨ Regenerate</button>
+    </div>
+
+    <div style="margin-top:22px; display:flex; align-items:center; justify-content:space-between; gap:12px; background:#fff; border:1px solid #ece8f7; border-radius:14px; padding:10px 12px;">
+      <button id="schedule-prev-week" aria-label="Previous week" style="width:40px;height:40px;border:1px solid #ece8f7;border-radius:11px;background:#f9f7ff;color:#6d56e8;cursor:pointer;font-size:20px;">‹</button>
+      <div style="text-align:center;">
+        <div style="font-size:14px;font-weight:900;color:#4a4768;">${weekLabel}</div>
+        <button id="schedule-current-week" style="border:0;background:transparent;color:#8b7cf6;cursor:pointer;font-size:11px;font-weight:800;margin-top:2px;">Current week</button>
+      </div>
+      <button id="schedule-next-week" aria-label="Next week" style="width:40px;height:40px;border:1px solid #ece8f7;border-radius:11px;background:#f9f7ff;color:#6d56e8;cursor:pointer;font-size:20px;">›</button>
     </div>
 
     ${s.loadingSchedule ? `<div style="margin-top:24px; font-size:14px; color:#75718f;">Building your week from real calendar data…</div>` : `
@@ -581,6 +680,18 @@ function renderSchedule() {
   `;
 
   document.getElementById('regenerate-btn').onclick = loadSchedule;
+  document.getElementById('schedule-prev-week').onclick = () => {
+    state.scheduleWeekOffset -= 1;
+    loadSchedule();
+  };
+  document.getElementById('schedule-next-week').onclick = () => {
+    state.scheduleWeekOffset += 1;
+    loadSchedule();
+  };
+  document.getElementById('schedule-current-week').onclick = () => {
+    state.scheduleWeekOffset = 0;
+    loadSchedule();
+  };
   document.querySelectorAll('[data-day]').forEach(btn => {
     btn.onclick = () => { state.selectedDay = Number(btn.dataset.day); renderSchedule(); };
   });
@@ -590,10 +701,10 @@ async function loadSchedule() {
   state.loadingSchedule = true;
   renderSchedule();
   try {
-    const res = await fetch(`${API_BASE}/schedule`);
+    const res = await fetch(`${API_BASE}/schedule?week_offset=${state.scheduleWeekOffset}`);
     if (!res.ok) throw new Error(`Request failed: ${res.status}`);
     state.scheduleDays = await res.json();
-    state.selectedDay = 0;
+    state.selectedDay = state.scheduleWeekOffset === 0 ? (new Date().getDay() + 6) % 7 : 0;
   } catch (err) {
     console.error(err);
     document.getElementById('view-schedule').insertAdjacentHTML('beforeend',

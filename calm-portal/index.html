@@ -1,0 +1,370 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#061d2a">
+  <title>Busy Brain — Calm Portal</title>
+  <style>
+    :root {
+      --ink: #071922;
+      --teal: #61efe1;
+      --lavender: #b9a3ff;
+      --coral: #ff8e82;
+      --pearl: #fff9eb;
+    }
+    * { box-sizing: border-box; }
+    html, body { width: 100%; min-height: 100%; margin: 0; }
+    body {
+      display: grid;
+      place-items: center;
+      overflow: hidden;
+      color: var(--pearl);
+      background: #020b12;
+      font-family: Inter, ui-rounded, "SF Pro Rounded", system-ui, sans-serif;
+    }
+    button { font: inherit; }
+    .experience {
+      position: relative;
+      width: min(100vw, 480px);
+      height: 100svh;
+      max-height: 920px;
+      isolation: isolate;
+      overflow: hidden;
+      background:
+        radial-gradient(circle at 76% 36%, rgba(97,239,225,.24), transparent 25%),
+        radial-gradient(circle at 18% 67%, rgba(185,163,255,.2), transparent 28%),
+        linear-gradient(160deg, #0a4e5b 0%, #223b67 48%, #6f477b 100%);
+    }
+    .experience::before,
+    .experience::after {
+      content: "";
+      position: absolute;
+      inset: -25%;
+      z-index: -2;
+      opacity: .38;
+      background: repeating-radial-gradient(ellipse at 45% 30%, transparent 0 42px, rgba(180,255,247,.16) 45px 48px, transparent 53px 78px);
+      animation: caustics 14s linear infinite;
+    }
+    .experience::after { transform: rotate(75deg); animation-duration: 19s; opacity: .2; }
+    .character {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      object-position: 50% 36%;
+      filter: saturate(.96) contrast(1.02) drop-shadow(0 24px 35px rgba(0,0,0,.24));
+      transform: scale(1.035);
+      transition: transform 5s cubic-bezier(.18,.76,.2,1), filter 2s ease;
+      animation: breathe 5.5s ease-in-out infinite;
+    }
+    .veil {
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+      background: linear-gradient(180deg, rgba(4,18,26,.08), transparent 40%, rgba(3,16,26,.1) 62%, rgba(3,12,20,.82) 100%);
+    }
+    .brand {
+      position: absolute;
+      top: max(24px, env(safe-area-inset-top));
+      left: 24px;
+      z-index: 8;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 12px;
+      font-weight: 750;
+      letter-spacing: .16em;
+      text-transform: uppercase;
+      text-shadow: 0 2px 10px rgba(0,0,0,.35);
+      color: white;
+      text-decoration: none;
+    }
+    .brand-dot {
+      width: 10px; height: 10px; border-radius: 50%;
+      background: var(--teal);
+      box-shadow: 0 0 18px var(--teal);
+    }
+    .intro {
+      position: absolute;
+      left: 24px;
+      right: 24px;
+      bottom: max(34px, calc(env(safe-area-inset-bottom) + 18px));
+      z-index: 10;
+      text-align: center;
+      transition: opacity .45s ease, transform .45s ease;
+    }
+    .eyebrow {
+      margin: 0 0 9px;
+      color: #c9fff8;
+      font-size: 12px;
+      font-weight: 800;
+      letter-spacing: .18em;
+      text-transform: uppercase;
+    }
+    .intro h1 {
+      max-width: 360px;
+      margin: 0 auto 12px;
+      font-size: clamp(31px, 9vw, 45px);
+      line-height: .98;
+      letter-spacing: -.045em;
+      text-wrap: balance;
+    }
+    .intro p {
+      max-width: 330px;
+      margin: 0 auto 20px;
+      color: rgba(255,255,255,.78);
+      font-size: 14px;
+      line-height: 1.45;
+    }
+    .start,
+    .replay {
+      min-height: 52px;
+      border: 1px solid rgba(255,255,255,.38);
+      border-radius: 999px;
+      padding: 0 23px;
+      color: #08212a;
+      font-weight: 850;
+      cursor: pointer;
+      background: linear-gradient(100deg, var(--pearl), #c7fff8 48%, #d7cdff);
+      box-shadow: 0 14px 42px rgba(68,236,220,.24), inset 0 1px rgba(255,255,255,.8);
+      transition: transform .2s ease, box-shadow .2s ease;
+    }
+    .start:hover, .replay:hover { transform: translateY(-2px); box-shadow: 0 18px 48px rgba(68,236,220,.34); }
+    .start:focus-visible, .replay:focus-visible { outline: 3px solid white; outline-offset: 3px; }
+    .wrist-target {
+      position: absolute;
+      z-index: 9;
+      left: 68%;
+      top: 49%;
+      width: 94px;
+      height: 94px;
+      border: 0;
+      border-radius: 50%;
+      cursor: pointer;
+      color: transparent;
+      background: rgba(97,239,225,.01);
+      transform: translate(-50%,-50%);
+    }
+    .wrist-target::before,
+    .wrist-target::after {
+      content: "";
+      position: absolute;
+      inset: 24px;
+      border: 2px solid rgba(157,255,246,.9);
+      border-radius: 50%;
+      box-shadow: 0 0 18px var(--teal), inset 0 0 14px rgba(97,239,225,.45);
+      animation: ping 1.8s ease-out infinite;
+    }
+    .wrist-target::after { animation-delay: .9s; }
+    .tap-label {
+      position: absolute;
+      z-index: 9;
+      left: 68%; top: calc(49% + 57px);
+      transform: translateX(-50%);
+      padding: 7px 11px;
+      border: 1px solid rgba(255,255,255,.24);
+      border-radius: 999px;
+      color: white;
+      background: rgba(3,28,38,.54);
+      backdrop-filter: blur(10px);
+      font-size: 11px;
+      font-weight: 800;
+      letter-spacing: .08em;
+      text-transform: uppercase;
+      white-space: nowrap;
+      animation: labelFloat 2.4s ease-in-out infinite;
+    }
+    .portal {
+      position: absolute;
+      z-index: 7;
+      left: 68%; top: 49%;
+      width: 84px; height: 100px;
+      border-radius: 52% 48% 62% 38%;
+      opacity: 0;
+      pointer-events: none;
+      transform: translate(-50%,-50%) scale(.05) rotate(-12deg);
+      background: radial-gradient(circle at 38% 28%, white 0 7%, #c9fff8 13%, #67eadd 34%, #a48aff 61%, rgba(255,142,130,.22) 73%, transparent 76%);
+      filter: drop-shadow(0 0 18px #7affef) drop-shadow(0 0 52px #9d80ff);
+    }
+    .portal::before {
+      content: "";
+      position: absolute;
+      left: 13%; right: 13%; top: 59%; height: 145%;
+      border-radius: 0 0 50% 50%;
+      background: repeating-linear-gradient(90deg, transparent 0 8px, rgba(218,255,250,.9) 9px 13px, transparent 14px 20px);
+      filter: blur(1.2px) drop-shadow(0 0 8px #75ffef);
+      animation: tentacles 1.2s ease-in-out infinite alternate;
+    }
+    .halo {
+      position: absolute;
+      z-index: 5;
+      left: 68%; top: 49%;
+      width: 20px; height: 20px;
+      border: 3px solid var(--teal);
+      border-radius: 50%;
+      opacity: 0;
+      transform: translate(-50%,-50%);
+      box-shadow: 0 0 40px #9afff2;
+    }
+    .bubble-field, .spark-field { position: absolute; inset: 0; z-index: 6; pointer-events: none; }
+    .bubble {
+      position: absolute;
+      left: var(--x); top: var(--y);
+      width: var(--s); height: var(--s);
+      border: 1px solid rgba(255,255,255,.75);
+      border-radius: 50%;
+      opacity: 0;
+      background: radial-gradient(circle at 28% 24%, white 0 8%, var(--c) 25%, rgba(255,255,255,.08) 72%);
+      box-shadow: 0 0 16px var(--c), inset 0 0 9px rgba(255,255,255,.52);
+    }
+    .message {
+      position: absolute;
+      z-index: 12;
+      left: 22px; right: 22px;
+      bottom: max(74px, calc(env(safe-area-inset-bottom) + 54px));
+      padding: 22px 20px 18px;
+      border: 1px solid rgba(255,255,255,.32);
+      border-radius: 28px;
+      opacity: 0;
+      transform: translateY(26px) scale(.96);
+      text-align: center;
+      background: linear-gradient(145deg, rgba(10,52,64,.72), rgba(55,39,83,.65));
+      box-shadow: 0 24px 70px rgba(0,0,0,.32), inset 0 1px rgba(255,255,255,.28);
+      backdrop-filter: blur(18px) saturate(1.35);
+      pointer-events: none;
+    }
+    .message h2 {
+      margin: 0;
+      font-size: clamp(27px, 7.8vw, 37px);
+      line-height: 1.02;
+      letter-spacing: -.04em;
+      text-wrap: balance;
+    }
+    .message p { margin: 10px 0 0; color: rgba(255,255,255,.75); font-size: 13px; line-height: 1.4; }
+    .replay {
+      position: absolute;
+      z-index: 13;
+      right: 18px;
+      top: max(20px, env(safe-area-inset-top));
+      min-height: 38px;
+      padding: 0 15px;
+      opacity: 0;
+      pointer-events: none;
+      font-size: 12px;
+    }
+    .experience.active .intro { opacity: 0; transform: translateY(18px); pointer-events: none; }
+    .experience.active .wrist-target, .experience.active .tap-label { opacity: 0; pointer-events: none; }
+    .experience.active .character { transform: scale(1.095) translate(-1.4%, -1.8%); filter: saturate(1.12) contrast(1.03) drop-shadow(0 24px 35px rgba(0,0,0,.26)); animation-play-state: paused; }
+    .experience.active .halo { animation: halo 1.7s ease-out both; }
+    .experience.active .portal { animation: portalOpen 4.8s cubic-bezier(.14,.78,.18,1) .5s both; }
+    .experience.active .bubble { animation: bubbleRise 4.2s cubic-bezier(.18,.62,.25,1) var(--d) both; }
+    .experience.active .message { animation: reveal .8s cubic-bezier(.16,.8,.2,1) 3.6s forwards; pointer-events: auto; }
+    .experience.active .replay { animation: replayIn .5s ease 6.2s forwards; pointer-events: auto; }
+    .spark {
+      position: absolute;
+      left: var(--x); top: var(--y);
+      color: var(--c);
+      opacity: 0;
+      font-size: var(--s);
+      text-shadow: 0 0 12px currentColor, 0 0 30px currentColor;
+    }
+    .experience.active .spark { animation: sparkle 1.4s ease-out var(--d) both; }
+    @keyframes breathe { 0%,100%{transform:scale(1.035) translateY(0)} 50%{transform:scale(1.047) translateY(-5px)} }
+    @keyframes caustics { to { transform: translate3d(8%,5%,0) rotate(7deg); } }
+    @keyframes ping { 0%{opacity:0;transform:scale(.4)} 28%{opacity:1} 100%{opacity:0;transform:scale(2.4)} }
+    @keyframes labelFloat { 50%{transform:translate(-50%,-5px)} }
+    @keyframes halo { 0%{opacity:0;transform:translate(-50%,-50%) scale(.2)} 20%{opacity:1} 100%{opacity:0;transform:translate(-50%,-50%) scale(22)} }
+    @keyframes portalOpen { 0%{opacity:0;transform:translate(-50%,-50%) scale(.05) rotate(-12deg)} 19%{opacity:1;transform:translate(-50%,-50%) scale(.85) rotate(4deg)} 58%{opacity:1;transform:translate(-50%,-50%) scale(2.25) rotate(-2deg)} 100%{opacity:.92;transform:translate(-50%,-50%) scale(2.55) rotate(2deg)} }
+    @keyframes tentacles { from{transform:skewX(-8deg) scaleY(.94)} to{transform:skewX(9deg) scaleY(1.07)} }
+    @keyframes bubbleRise { 0%{opacity:0;transform:translate(0,80px) scale(.3)} 14%{opacity:.9} 70%{opacity:.78} 100%{opacity:0;transform:translate(var(--drift),-560px) scale(1.25)} }
+    @keyframes reveal { to{opacity:1;transform:translateY(0) scale(1)} }
+    @keyframes replayIn { to{opacity:1} }
+    @keyframes sparkle { 0%{opacity:0;transform:scale(.2) rotate(0)} 38%{opacity:1;transform:scale(1.35) rotate(24deg)} 100%{opacity:0;transform:scale(.25) rotate(80deg)} }
+    @media (min-width: 700px) {
+      .experience { border-radius: 30px; box-shadow: 0 30px 100px rgba(0,0,0,.6); }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      *,*::before,*::after { animation-duration: .01ms !important; animation-delay: 0ms !important; }
+    }
+  </style>
+</head>
+<body>
+  <main class="experience" id="experience" aria-label="Busy Brain interactive calm invitation">
+    <img class="character" src="../assets/695cbb5b302957ebb7c0edcef3f29e71.jpg" alt="Illustrated woman wearing a glowing wrist calendar">
+    <div class="veil"></div>
+    <a class="brand" href="../index.html" aria-label="Back to Busy Brain"><span class="brand-dot"></span>Busy Brain</a>
+    <section class="intro">
+      <p class="eyebrow">A tiny calm moment</p>
+      <h1>Your schedules found each other.</h1>
+      <p id="intro-detail">Tap the glowing calendar band to open your shared calm window.</p>
+      <button class="start" id="start">Open the calm portal&nbsp; ✨</button>
+    </section>
+    <button class="wrist-target" id="wrist" aria-label="Tap the glowing wrist calendar">Open portal</button>
+    <div class="tap-label">Tap the calm band</div>
+    <div class="halo"></div>
+    <div class="portal" aria-hidden="true"></div>
+    <div class="bubble-field" id="bubbles" aria-hidden="true"></div>
+    <div class="spark-field" id="sparks" aria-hidden="true"></div>
+    <section class="message" aria-live="polite">
+      <h2>Our calm window<br>is ready ✨.</h2>
+      <p id="detail-line">Check the calendar invitation for the details.<br>I can’t wait to see you there.</p>
+    </section>
+    <button class="replay" id="replay">Replay ↻</button>
+    <audio id="voice" preload="auto" src="https://cdn.pika.art/v2/files/agent/bdbbeb2a-cae1-47c6-b7c6-d9b9091946e7/minimax-tts-1782047441504.mp3"></audio>
+  </main>
+  <script>
+    const experience = document.querySelector('#experience');
+    const voice = document.querySelector('#voice');
+    const bubbleField = document.querySelector('#bubbles');
+    const sparkField = document.querySelector('#sparks');
+    const params = new URLSearchParams(window.location.search);
+    const friend = params.get('friend') || '';
+    const when = params.get('when') || '';
+    const venue = params.get('venue') || '';
+    const introDetail = document.querySelector('#intro-detail');
+    const detailLine = document.querySelector('#detail-line');
+    if (friend || when) {
+      introDetail.textContent = `${friend ? `${friend}, ` : ''}tap the glowing calendar band to open your shared calm window${when ? ` for ${when}` : ''}.`;
+    }
+    const detailParts = [when, venue].filter(Boolean);
+    if (detailParts.length) {
+      detailLine.textContent = `${detailParts.join(' · ')}. Check the calendar invitation for the details.`;
+    }
+    const colors = ['#61efe1','#b9a3ff','#ff8e82','#fff9eb'];
+    for (let i = 0; i < 26; i++) {
+      const b = document.createElement('i');
+      b.className = 'bubble';
+      b.style.setProperty('--x', `${12 + Math.random() * 78}%`);
+      b.style.setProperty('--y', `${58 + Math.random() * 34}%`);
+      b.style.setProperty('--s', `${12 + Math.random() * 36}px`);
+      b.style.setProperty('--c', colors[i % colors.length]);
+      b.style.setProperty('--d', `${.7 + Math.random() * 2.4}s`);
+      b.style.setProperty('--drift', `${-70 + Math.random() * 140}px`);
+      bubbleField.appendChild(b);
+    }
+    for (let i = 0; i < 18; i++) {
+      const s = document.createElement('span');
+      s.className = 'spark';
+      s.textContent = i % 3 ? '✦' : '✧';
+      s.style.setProperty('--x', `${9 + Math.random() * 82}%`);
+      s.style.setProperty('--y', `${12 + Math.random() * 70}%`);
+      s.style.setProperty('--s', `${16 + Math.random() * 30}px`);
+      s.style.setProperty('--c', colors[i % colors.length]);
+      s.style.setProperty('--d', `${4.7 + Math.random() * 2.2}s`);
+      sparkField.appendChild(s);
+    }
+    function begin() {
+      experience.classList.remove('active');
+      void experience.offsetWidth;
+      experience.classList.add('active');
+      voice.currentTime = 0;
+      voice.play().catch(() => {});
+    }
+    document.querySelector('#start').addEventListener('click', begin);
+    document.querySelector('#wrist').addEventListener('click', begin);
+    document.querySelector('#replay').addEventListener('click', begin);
+  </script>
+</body>
+</html>

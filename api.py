@@ -8,6 +8,7 @@ by the uAgents network, just called directly instead of over a chat message.
 
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import date, datetime, time, timedelta
 from typing import List, Optional
 
@@ -17,7 +18,7 @@ from pydantic import BaseModel
 
 from agents import CalendarOrchestrator, SocialAgent
 from coordination import MeetingConstraints
-from models import ClassPlan, EnergyLevel, FocusProfile, EnergyWindow, UserProfile, TaskType
+from models import CalendarEvent, ClassPlan, EnergyLevel, FocusProfile, EnergyWindow, UserProfile, TaskType
 from sample_data import build_friend_schedules, build_sample_inputs
 
 app = FastAPI(title="BusyBrain API")
@@ -36,6 +37,11 @@ orchestrator = CalendarOrchestrator()
 # demo session. Resets on server restart — fine for a hackathon, would need a
 # real datastore for production.
 session_classes: List[ClassPlan] = []
+
+# Meetings chosen in the Find a time flow. Keeping these beside session_classes
+# gives every API view one shared demo-calendar source: conflict ranking,
+# generated schedules, and Today's flow all see the same saved events.
+session_meetings: List[CalendarEvent] = []
 
 # The most recently submitted focus rhythm / energy preference. models.py's
 # FocusProfile and energy windows are per-profile, not per-class, so the most
@@ -64,6 +70,20 @@ class MeetingResultOut(BaseModel):
     reasons: List[str]
     start_iso: str
     end_iso: str
+
+
+class SaveMeetingRequest(BaseModel):
+    friend: str
+    start_iso: str
+    end_iso: str
+    venue: Optional[str] = None
+
+
+class SaveMeetingOut(BaseModel):
+    saved: bool
+    title: str
+    start_iso: str
+    total_meetings: int
 
 
 class AddClassRequest(BaseModel):
@@ -169,6 +189,44 @@ def _build_profile() -> UserProfile:
     return profile
 
 
+def _inputs_for_week(target_week_start: date):
+    """Return the seeded demo calendar shifted onto a requested week.
+
+    The prototype's classes and planning tasks represent a recurring weekly
+    rhythm. Shifting copies (rather than mutating the seed data) lets both the
+    month flow and week schedule navigate indefinitely while session meetings
+    remain fixed on the exact dates the user chose.
+    """
+    _, classes, fixed_events, tasks, base_week_start = build_sample_inputs()
+    delta = target_week_start - base_week_start
+
+    def shift_event(event: CalendarEvent) -> CalendarEvent:
+        return replace(event, start=event.start + delta, end=event.end + delta)
+
+    shifted_classes = [
+        ClassPlan(
+            class_name=class_plan.class_name,
+            meetings=[shift_event(event) for event in class_plan.meetings],
+            weekly_study_hours=class_plan.weekly_study_hours,
+        )
+        for class_plan in classes
+    ]
+    shifted_session_classes = [
+        ClassPlan(
+            class_name=class_plan.class_name,
+            meetings=[shift_event(event) for event in class_plan.meetings],
+            weekly_study_hours=class_plan.weekly_study_hours,
+        )
+        for class_plan in session_classes
+    ]
+    shifted_events = [shift_event(event) for event in fixed_events]
+    shifted_tasks = [
+        replace(task, due=task.due + delta if task.due else None)
+        for task in tasks
+    ]
+    return shifted_classes + shifted_session_classes, shifted_events, shifted_tasks
+
+
 def _window_period(start_time: time) -> str:
     if start_time.hour < 12:
         return "morning"
@@ -186,7 +244,9 @@ def health():
 def find_meeting(req: FindMeetingRequest):
     """Real friend-meeting ranking, using SocialAgent + sample calendars."""
     profile, classes, fixed_events, tasks, week_start = build_sample_inputs()
-    plan = orchestrator.build_week_plan(profile, classes, fixed_events, tasks, week_start)
+    plan = orchestrator.build_week_plan(
+        profile, classes, fixed_events + session_meetings, tasks, week_start
+    )
 
     friend_schedules = build_friend_schedules()
     friend_events = friend_schedules.get(req.friend, [])
@@ -215,6 +275,45 @@ def find_meeting(req: FindMeetingRequest):
         )
         for c in candidates
     ]
+
+
+@app.post("/meetings", response_model=SaveMeetingOut)
+def save_meeting(req: SaveMeetingRequest):
+    """Persist a chosen friend meeting into the shared demo calendar.
+
+    The endpoint is idempotent by title/start/end so a double click or a UI
+    retry cannot create duplicate calendar entries.
+    """
+    start = datetime.fromisoformat(req.start_iso)
+    end = datetime.fromisoformat(req.end_iso)
+    if end <= start:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=422, detail="Meeting end must be after start")
+
+    title = f"Meet with {req.friend.strip() or 'friend'}"
+    existing = next(
+        (
+            event for event in session_meetings
+            if event.title == title and event.start == start and event.end == end
+        ),
+        None,
+    )
+    if existing is None:
+        session_meetings.append(CalendarEvent(
+            title=title,
+            start=start,
+            end=end,
+            task_type=TaskType.SOCIAL,
+            location=req.venue or None,
+            notes="Calm window chosen together",
+        ))
+
+    return SaveMeetingOut(
+        saved=existing is None,
+        title=title,
+        start_iso=start.isoformat(),
+        total_meetings=len(session_meetings),
+    )
 
 
 class VenueSuggestionRequest(BaseModel):
@@ -268,7 +367,6 @@ def add_class(req: AddClassRequest):
     # A representative weekly meeting placeholder so the study planner has an
     # anchor date range; real meeting times would come from a calendar import.
     placeholder_meeting_start = datetime.combine(week_start, time(10, 0))
-    from models import CalendarEvent
     meetings = [
         CalendarEvent(
             title=req.class_name,
@@ -285,14 +383,18 @@ def add_class(req: AddClassRequest):
 
 
 @app.get("/schedule", response_model=List[DayOut])
-def generate_schedule():
+def generate_schedule(week_offset: int = 0):
     """Real week plan from CalendarOrchestrator, including any session-added
     classes and the most recently submitted focus/energy preference."""
-    _, classes, fixed_events, tasks, week_start = build_sample_inputs()
+    today = date.today()
+    current_week_start = today - timedelta(days=today.weekday())
+    week_start = current_week_start + timedelta(weeks=week_offset)
+    all_classes, fixed_events, tasks = _inputs_for_week(week_start)
     profile = _build_profile()
-    all_classes = classes + session_classes
 
-    plan = orchestrator.build_week_plan(profile, all_classes, fixed_events, tasks, week_start)
+    plan = orchestrator.build_week_plan(
+        profile, all_classes, fixed_events + session_meetings, tasks, week_start
+    )
 
     days: List[DayOut] = []
     for offset in range(7):
@@ -387,13 +489,17 @@ def today_flow(day_offset: int = 0):
     status computed against what that task type needs versus the energy
     level at its scheduled time. day_offset selects which day of the
     current week to show (0 = first day of week, matching /schedule)."""
-    _, classes, fixed_events, tasks, week_start = build_sample_inputs()
+    today = date.today()
+    current_week_start = today - timedelta(days=today.weekday())
+    day = current_week_start + timedelta(days=day_offset)
+    week_start = day - timedelta(days=day.weekday())
+    all_classes, fixed_events, tasks = _inputs_for_week(week_start)
     profile = _build_profile()
-    all_classes = classes + session_classes
 
-    plan = orchestrator.build_week_plan(profile, all_classes, fixed_events, tasks, week_start)
+    plan = orchestrator.build_week_plan(
+        profile, all_classes, fixed_events + session_meetings, tasks, week_start
+    )
 
-    day = week_start + timedelta(days=day_offset)
     day_events = sorted(
         (e for e in plan.events if e.start.date() == day),
         key=lambda e: e.start,
