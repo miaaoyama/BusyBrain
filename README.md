@@ -55,7 +55,7 @@ Run each agent in its own terminal:
 make orchestrator
 make study
 make calendar
-make wellness
+make workload
 ```
 
 Open each Inspector URL, choose **Connect → Mailbox**, and keep all four processes
@@ -73,12 +73,23 @@ specialist responses and returned the final plan. Press Ctrl+C after the result.
 
 ## ASI:One demo prompt
 
-> I have class Monday and Wednesday from 10–11:30, work Friday 3–7, a project due
-> Saturday that needs six hours, and my best focus is in the morning. Build a week
-> that includes travel, meals, workouts, and recovery without overloading me.
+> Find me 45 minutes with Maya in the next seven days, preferably in the afternoon
+> and not right after class. Compare both calendars, give me the three best options,
+> and explain why the top time is fair to both of us.
 
 The terminal logs show the orchestrator dispatching the request and receiving three
-specialist responses before returning the synthesized plan.
+specialist responses before returning the synthesized plan. The Workload & Social
+agent calls the deterministic ranking engine against seeded calendars, so the times
+and fit scores are evidence rather than invented availability.
+
+## Pika invitation handoff
+
+After the user approves a meetup time, the Streamlit experience can prepare a Pika
+invite prompt. This action is consent-gated because personalized video must only use
+a reference photo with the subject's permission. The prompt includes the selected
+time, a calm-window message, and the product's pastel visual direction. Live video
+generation is intentionally isolated from scheduling so a provider delay cannot
+break the core planning demo.
 
 ## Existing product prototype
 

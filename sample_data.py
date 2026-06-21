@@ -58,10 +58,9 @@ def build_sample_inputs():
 def build_friend_schedules():
     """Sample connected-calendar availability for the friend picker."""
     today = date.today()
-    week_start = today - timedelta(days=today.weekday())
 
     def busy(name, day_offset, start, end):
-        day = week_start + timedelta(days=day_offset)
+        day = today + timedelta(days=day_offset)
         return CalendarEvent(
             f"{name} busy",
             datetime.combine(day, start),
