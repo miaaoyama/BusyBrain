@@ -131,6 +131,14 @@ python3 -m http.server 8080
 
 Then open `http://localhost:8080/`. Keep both processes running during the demo.
 
+To start the website, API, and all four Fetch.ai agents from one terminal instead:
+
+```bash
+make app
+```
+
+Press `Ctrl+C` once to stop every Busy Brain process.
+
 ## Safety and scope
 
 BusyBrain provides planning support, not medical diagnosis, therapy, or professional

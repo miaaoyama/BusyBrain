@@ -1,4 +1,7 @@
-.PHONY: orchestrator study calendar workload wellness smoke-test demo
+.PHONY: app orchestrator study calendar workload wellness smoke-test demo
+
+app:
+	./start-busy-brain.sh
 
 orchestrator:
 	.venv/bin/python agent.py
