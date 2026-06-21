@@ -6,7 +6,7 @@ from uagents import Agent, Context, Protocol
 from uagents.registration import AlmanacApiRegistrationPolicy
 
 from agent_config import ORCHESTRATOR_ADDRESS, WELLNESS_SEED
-from agent_messages import PlanningRequest, SpecialistResponse
+from agent_messages import MeetingOption, PlanningRequest, SpecialistResponse
 from agent_utils import ask_asi
 from agents import CalendarOrchestrator
 from coordination import parse_meeting_request
@@ -33,6 +33,7 @@ async def plan_wellness(ctx: Context, sender: str, msg: PlanningRequest):
         return
 
     ctx.logger.info("Received request %s from BusyBrain", msg.request_id)
+    meeting_options: list[MeetingOption] = []
     try:
         friend_schedules = build_friend_schedules()
         constraints = parse_meeting_request(msg.user_text, friend_schedules)
@@ -66,6 +67,17 @@ async def plan_wellness(ctx: Context, sender: str, msg: PlanningRequest):
                         f"{candidate.end.strftime('%I:%M %p')} (fit {candidate.score}). "
                         f"Why: {why}. Tradeoffs: {tradeoffs}."
                     )
+                    meeting_options.append(
+                        MeetingOption(
+                            option_id=index,
+                            title=f"Meet with {constraints.friend_name}",
+                            start_iso=candidate.start.isoformat(),
+                            end_iso=candidate.end.isoformat(),
+                            score=candidate.score,
+                            reasons=candidate.reasons,
+                            tradeoffs=candidate.tradeoffs,
+                        )
+                    )
                 result = (
                     f"I compared the seeded calendars for the student and "
                     f"{constraints.friend_name} using observable load and transition "
@@ -89,7 +101,10 @@ meals or recovery buffers and return concise advice for an orchestrator.""",
     await ctx.send(
         sender,
         SpecialistResponse(
-            request_id=msg.request_id, specialist="wellness", result=result
+            request_id=msg.request_id,
+            specialist="wellness",
+            result=result,
+            meeting_options=meeting_options,
         ),
     )
     ctx.logger.info("Returned wellness plan for request %s", msg.request_id)

@@ -1,5 +1,4 @@
-.env
-.env.*
+.env*
 !.env.example
 .venv/
 __pycache__/
@@ -11,3 +10,6 @@ __pycache__/
 *.key
 credentials*.json
 secrets*.json
+
+# Local uAgents storage (conversation state and action receipts)
+agent*_data.json

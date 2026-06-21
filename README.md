@@ -21,10 +21,10 @@ product rather than an eligibility wrapper around a chatbot.
 
 | Agent | Responsibility | Port | Address |
 |---|---|---:|---|
-| BusyBrain Orchestrator | ASI:One Chat Protocol entry point and final synthesis | 8001 | `agent1q2qrnqd6v20qx0ltq2pnt2r85fadkekgs2js07w84h9jj87lhgm2crewv4j` |
-| Study Planner | Focus rhythms, workload, deadlines, and daily study limits | 8002 | `agent1qdchqqjrvhyvx9cxxtmgwy498zwscn9ac9yqja43cqv90w3q3asq70rjrww` |
-| Calendar Planner | Fixed events, conflicts, travel, preparation, and transitions | 8003 | `agent1qvv9585yydz2r9p3n245t9y6l46kqpsa0e299n93nl5y60f6lgfwx64wygz` |
-| Workload & Social Context | Calendar-pressure signals, fair meetup timing, recovery, and rationale | 8004 | `agent1q0pkvdgsxv4w8r5lqh2chmlhantxtlk28e5yh9g06ah5xwnuvqznqzenkwe` |
+| [BusyBrain Orchestrator](https://agentverse.ai/agents/details/agent1q2qrnqd6v20qx0ltq2pnt2r85fadkekgs2js07w84h9jj87lhgm2crewv4j/profile) | ASI:One Chat Protocol entry point and final synthesis | 8001 | `agent1q2qrnqd6v20qx0ltq2pnt2r85fadkekgs2js07w84h9jj87lhgm2crewv4j` |
+| [Study Planner](https://agentverse.ai/agents/details/agent1qdchqqjrvhyvx9cxxtmgwy498zwscn9ac9yqja43cqv90w3q3asq70rjrww/profile) | Focus rhythms, workload, deadlines, and daily study limits | 8002 | `agent1qdchqqjrvhyvx9cxxtmgwy498zwscn9ac9yqja43cqv90w3q3asq70rjrww` |
+| [Calendar Planner](https://agentverse.ai/agents/details/agent1qvv9585yydz2r9p3n245t9y6l46kqpsa0e299n93nl5y60f6lgfwx64wygz/profile) | Fixed events, conflicts, travel, preparation, and transitions | 8003 | `agent1qvv9585yydz2r9p3n245t9y6l46kqpsa0e299n93nl5y60f6lgfwx64wygz` |
+| [Workload & Social Context](https://agentverse.ai/agents/details/agent1q0pkvdgsxv4w8r5lqh2chmlhantxtlk28e5yh9g06ah5xwnuvqznqzenkwe/profile) | Calendar-pressure signals, fair meetup timing, recovery, and rationale | 8004 | `agent1q0pkvdgsxv4w8r5lqh2chmlhantxtlk28e5yh9g06ah5xwnuvqznqzenkwe` |
 
 ## End-to-end flow
 
@@ -33,7 +33,13 @@ product rather than an eligibility wrapper around a chatbot.
 3. It dispatches a typed `PlanningRequest` to the Study, Calendar, and Workload & Social specialists.
 4. Each specialist returns a signed `SpecialistResponse`.
 5. BusyBrain verifies each sender, waits for all three, resolves conflicts, and
-   returns one answer through the Chat Protocol.
+   returns ranked options through the Chat Protocol.
+6. The user replies `choose option 1`, `choose option 2`, or `choose option 3`.
+7. BusyBrain persists a confirmed-event action receipt and returns a populated
+   Google Calendar action link—all inside the ASI:One conversation.
+
+If a specialist is unavailable, the orchestrator finalizes after 45 seconds with
+the verified partial results and names the missing specialist instead of hanging.
 
 ## Local setup
 
@@ -77,10 +83,15 @@ specialist responses and returned the final plan. Press Ctrl+C after the result.
 > and not right after class. Compare both calendars, give me the three best options,
 > and explain why the top time is fair to both of us.
 
+Then reply:
+
+> choose option 2
+
 The terminal logs show the orchestrator dispatching the request and receiving three
 specialist responses before returning the synthesized plan. The Workload & Social
 agent calls the deterministic ranking engine against seeded calendars, so the times
-and fit scores are evidence rather than invented availability.
+and fit scores are evidence rather than invented availability. The second turn
+produces a durable confirmation receipt and a Google Calendar action.
 
 ## Pika invitation handoff
 
@@ -114,7 +125,16 @@ schedule information is surfaced as an assumption rather than silently invented.
 ## Hackathon submission checklist
 
 - [ ] Public GitHub repository
-- [ ] Four connected Agentverse profile links
+- [x] Four Agentverse profile links documented
 - [ ] Shared ASI:One chat session
 - [ ] Three-to-five-minute demo video
 - [ ] Devpost explanation and architecture
+
+## Tests
+
+```bash
+python -m unittest discover -s tests -v
+```
+
+The suite covers natural-language constraints, collision prevention, recovery-gap
+ranking, option selection, durable confirmation, and Google Calendar handoff URLs.
