@@ -41,7 +41,7 @@ class StudyPlannerAgent:
             if not slot:
                 result.unscheduled.append(f"Study block {i} for {class_plan.class_name}")
                 continue
-            start, end = slot
+            start, end, reason = slot
             count = scheduled_today.get(start.date(), 0)
             if count >= profile.focus_profile.max_blocks_per_day:
                 result.unscheduled.append(f"Daily focus limit reached for one {class_plan.class_name} block.")
@@ -52,7 +52,7 @@ class StudyPlannerAgent:
                 start=start,
                 end=end,
                 task_type=TaskType.STUDY,
-                notes="Auto-planned based on class workload, energy window, and focus profile.",
+                notes=f"Why this time: {reason}.",
                 flexible=True,
             ))
         result.messages.append(f"Added study blocks for {class_plan.class_name} using {profile.focus_profile.focus_minutes}/{profile.focus_profile.break_minutes} focus rhythm.")
@@ -92,24 +92,26 @@ class WellnessAgent:
         workout_minutes = profile.preferred_workout_minutes
         slot = find_best_slot(existing, profile, workout_minutes, day, day, EnergyLevel.MEDIUM)
         if slot:
+            start, end, reason = slot
             result.events.append(CalendarEvent(
                 title="Workout / movement reset",
-                start=slot[0],
-                end=slot[1],
+                start=start,
+                end=end,
                 task_type=TaskType.WORKOUT,
-                notes="Energy-aware movement block. Keep it easy if energy is low.",
+                notes=f"Why this time: {reason}. Keep it easy if energy is low.",
                 flexible=True,
             ))
 
         meal_slot = find_best_slot(existing + result.events, profile, 15, day, day, EnergyLevel.LOW)
         if meal_slot:
+            meal_start, meal_end, meal_reason = meal_slot
             recipe = self.recipe_ideas[day.toordinal() % len(self.recipe_ideas)]
             result.events.append(CalendarEvent(
                 title="Meal idea reminder",
-                start=meal_slot[0],
-                end=meal_slot[1],
+                start=meal_start,
+                end=meal_end,
                 task_type=TaskType.MEAL,
-                notes=f"Quick idea: {recipe}.",
+                notes=f"Quick idea: {recipe}. Why this time: {meal_reason}.",
                 flexible=True,
             ))
 
@@ -141,13 +143,14 @@ class TaskAgent:
             if not slot:
                 result.unscheduled.append(f"{task.title} block {i}")
                 continue
+            start, end, reason = slot
             result.events.append(CalendarEvent(
                 title=f"Task: {task.title}",
-                start=slot[0],
-                end=slot[1],
+                start=start,
+                end=end,
                 task_type=task.task_type,
                 location=task.location,
-                notes=f"Auto-split from estimated {task.estimated_hours} hours.",
+                notes=f"Auto-split from estimated {task.estimated_hours} hours. Why this time: {reason}.",
                 flexible=True,
             ))
         return result

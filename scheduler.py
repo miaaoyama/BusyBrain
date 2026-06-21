@@ -16,17 +16,42 @@ def energy_score(level: EnergyLevel) -> int:
     return {EnergyLevel.LOW: 1, EnergyLevel.MEDIUM: 2, EnergyLevel.HIGH: 3}[level]
 
 
-def window_score(slot_start: datetime, slot_end: datetime, profile: UserProfile, needed: EnergyLevel) -> int:
+def window_score(slot_start: datetime, slot_end: datetime, profile: UserProfile, needed: EnergyLevel) -> tuple[int, list[str]]:
+    """Scores a slot and returns the reasons behind that score.
+
+    Reasons describe the relationship between the window's energy and what
+    the task actually needs (exact match, more than enough, or below ideal)
+    rather than just naming the window's own energy label, so the phrasing
+    stays sensible even when a low-energy task lands in a high-energy window.
+    """
     score = 0
+    reasons: list[str] = []
     needed_score = energy_score(needed)
     for window in profile.energy_windows:
         ws = combine(slot_start.date(), window.start)
         we = combine(slot_start.date(), window.end)
         if slot_start >= ws and slot_end <= we:
             score += energy_score(window.energy) * 10
-            if energy_score(window.energy) >= needed_score:
+            window_label = f"{window.start.strftime('%-I%p').lower()}\u2013{window.end.strftime('%-I%p').lower()}"
+            window_energy_score = energy_score(window.energy)
+            if window_energy_score >= needed_score:
                 score += 50
-    return score
+                if window_energy_score == needed_score:
+                    reasons.append(
+                        f"your {window.energy.value}-energy window ({window_label}) "
+                        f"is exactly what this task needs"
+                    )
+                else:
+                    reasons.append(
+                        f"your energy is {window.energy.value} here ({window_label}), "
+                        f"more than enough for this task"
+                    )
+            else:
+                reasons.append(
+                    f"your energy is only {window.energy.value} here ({window_label}), "
+                    f"lower than ideal for this task"
+                )
+    return score, reasons
 
 
 def is_free(existing: List[CalendarEvent], start: datetime, end: datetime) -> bool:
@@ -41,8 +66,14 @@ def find_best_slot(
     end_day: date,
     energy_needed: EnergyLevel = EnergyLevel.MEDIUM,
     step_minutes: int = 15,
-) -> Optional[tuple[datetime, datetime]]:
-    candidates: list[tuple[int, datetime, datetime]] = []
+) -> Optional[tuple[datetime, datetime, str]]:
+    """Finds the best open slot and explains why it was chosen.
+
+    Returns (start, end, reason) where reason is a short, human-readable
+    explanation built from the energy-window match and any scheduling
+    heuristics that were applied (e.g. avoiding late-evening slots).
+    """
+    candidates: list[tuple[int, datetime, datetime, list[str]]] = []
     current_day = start_day
     while current_day <= end_day:
         day_start = combine(current_day, profile.day_start)
@@ -51,17 +82,23 @@ def find_best_slot(
         while slot_start + timedelta(minutes=duration_minutes) <= day_end:
             slot_end = slot_start + timedelta(minutes=duration_minutes)
             if is_free(existing, slot_start, slot_end):
-                score = window_score(slot_start, slot_end, profile, energy_needed)
+                score, reasons = window_score(slot_start, slot_end, profile, energy_needed)
+                reasons = list(reasons)
                 # Prefer not too late, and prefer earlier deadlines.
                 if slot_start.hour >= 20:
                     score -= 10
-                candidates.append((score, slot_start, slot_end))
+                    reasons.append("scheduled before late evening despite slightly lower preference")
+                if not reasons:
+                    reasons.append("the next open slot that didn't conflict with anything else on your calendar")
+                candidates.append((score, slot_start, slot_end, reasons))
             slot_start += timedelta(minutes=step_minutes)
         current_day += timedelta(days=1)
     if not candidates:
         return None
     candidates.sort(key=lambda c: (-c[0], c[1]))
-    return candidates[0][1], candidates[0][2]
+    best = candidates[0]
+    reason = "; ".join(best[3])
+    return best[1], best[2], reason
 
 
 def split_hours_into_focus_blocks(total_hours: float, focus_minutes: int) -> List[int]:
